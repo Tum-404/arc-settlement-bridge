@@ -37,6 +37,7 @@ yarn-error.log
 /.pi
 /.mcp.json
 /AGENTS.md
+/sources/
 /CLAUDE.md
 /boost.json
 /opencode.json
