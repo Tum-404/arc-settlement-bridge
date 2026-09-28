@@ -1,0 +1,52 @@
+services:
+  bridge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_KEY=base64:7nJGgx3uJE5PZl9raTEICzvB0nQapJbccLknPnsERgQ=
+      - DB_CONNECTION=pgsql
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_DATABASE=settlement
+      - DB_USERNAME=settlement
+      - DB_PASSWORD=settlement
+      - SETTLEMENT_PROVIDER=fake
+      - INVOICE_GATEWAY=fake
+      - SOLIDINVOICE_URL=http://solidinvoice:80
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: settlement
+      POSTGRES_USER: settlement
+      POSTGRES_PASSWORD: settlement
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U settlement -d settlement"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  solidinvoice:
+    image: solidinvoice/solidinvoice:latest
+    ports:
+      - "8080:80"
+    environment:
+      - DATABASE_URL=pgsql://settlement:settlement@db:5432/settlement
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
