@@ -1,0 +1,72 @@
+services:
+    bridge:
+        # Publish this immutable image to OCI Container Registry before deploying.
+        image: ${BRIDGE_IMAGE:?Set BRIDGE_IMAGE to an OCI Container Registry image reference}
+        restart: unless-stopped
+        init: true
+        env_file:
+            - .env
+        # Apply migrations in a controlled release job, never on web-container startup.
+        command: php artisan serve --host=0.0.0.0 --port=8000
+        ports:
+            # Restrict OCI NSG ingress on this port to the OCI Load Balancer.
+            - '8000:8000'
+        depends_on:
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD-SHELL', "php -r 'exit((int) @file_get_contents(\"http://127.0.0.1:8000/up\") !== 200);'"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 30s
+        networks:
+            - private
+
+    queue:
+        image: ${BRIDGE_IMAGE:?Set BRIDGE_IMAGE to an OCI Container Registry image reference}
+        restart: unless-stopped
+        init: true
+        env_file:
+            - .env
+        command: php artisan queue:work --sleep=3 --tries=3 --timeout=90
+        depends_on:
+            db:
+                condition: service_healthy
+        networks:
+            - private
+
+    db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${DB_DATABASE:?Set DB_DATABASE}
+            POSTGRES_USER: ${DB_USERNAME:?Set DB_USERNAME}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            - private
+
+    solidinvoice:
+        image: solidinvoice/solidinvoice:3.0.1
+        restart: unless-stopped
+        environment:
+            DATABASE_URL: pgsql://${DB_USERNAME:?Set DB_USERNAME}:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/${DB_DATABASE:?Set DB_DATABASE}
+        depends_on:
+            db:
+                condition: service_healthy
+        networks:
+            - private
+
+networks:
+    private:
+        driver: bridge
+
+volumes:
+    pgdata:
