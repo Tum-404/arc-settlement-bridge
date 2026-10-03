@@ -56,8 +56,10 @@ services:
     solidinvoice:
         image: solidinvoice/solidinvoice:3.0.1
         restart: unless-stopped
-        environment:
-            DATABASE_URL: pgsql://${DB_USERNAME:?Set DB_USERNAME}:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/${DB_DATABASE:?Set DB_DATABASE}
+        # SolidInvoice persists its own setup and database settings here. Without
+        # this volume it falls back to an unwritable SQLite database path.
+        volumes:
+            - solidinvoice_data:/etc/solidinvoice
         depends_on:
             db:
                 condition: service_healthy
@@ -70,3 +72,4 @@ networks:
 
 volumes:
     pgdata:
+    solidinvoice_data:
