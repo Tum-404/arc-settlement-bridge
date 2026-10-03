@@ -6,4 +6,7 @@ use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [DashboardController::class, 'index'])->name('home');
-Route::post('/demo/reset', [DashboardController::class, 'resetDemo'])->name('demo.reset');
+
+if (app()->environment(['local', 'testing'])) {
+    Route::post('/demo/reset', [DashboardController::class, 'resetDemo'])->name('demo.reset');
+}

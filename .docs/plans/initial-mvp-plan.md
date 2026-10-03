@@ -4,7 +4,7 @@ The whole MVP should prove one statement:
 
 > **“An invoice can be paid exactly once, and it is marked PAID only after the real settlement is confirmed.”**
 
-That directly addresses the weakness described in *Agents and Ledgers in 2026*: systems can record a payment that never actually happened, and retries can create duplicate payments even though the accounting entries still look valid. :chatgpt-content-reference{index="0"} SolidInvoice is particularly useful here because it has a strong workflow/state machine but no bank feed or independent mechanism to disprove a phantom payment. :chatgpt-content-reference{index="1"}
+That directly addresses the weakness described in _Agents and Ledgers in 2026_: systems can record a payment that never actually happened, and retries can create duplicate payments even though the accounting entries still look valid. :chatgpt-content-reference{index="0"} SolidInvoice is particularly useful here because it has a strong workflow/state machine but no bank feed or independent mechanism to disprove a phantom payment. :chatgpt-content-reference{index="1"}
 
 ## 1. Architecture I recommend
 
@@ -530,11 +530,11 @@ Content-Type: application/json
 
 ```json
 {
-  "source": "solidinvoice",
-  "invoice_id": "INV-001",
-  "recipient": "0x123...",
-  "amount": "100.000000",
-  "currency": "USDC"
+    "source": "solidinvoice",
+    "invoice_id": "INV-001",
+    "recipient": "0x123...",
+    "amount": "100.000000",
+    "currency": "USDC"
 }
 ```
 
@@ -542,11 +542,11 @@ Response:
 
 ```json
 {
-  "id": 42,
-  "status": "submitted",
-  "idempotency_key": "92af83...",
-  "provider_transaction_id": "txn_123",
-  "tx_hash": "0xabc..."
+    "id": 42,
+    "status": "submitted",
+    "idempotency_key": "92af83...",
+    "provider_transaction_id": "txn_123",
+    "tx_hash": "0xabc..."
 }
 ```
 
@@ -554,9 +554,9 @@ Duplicate request:
 
 ```json
 {
-  "id": 42,
-  "status": "submitted",
-  "duplicate": true
+    "id": 42,
+    "status": "submitted",
+    "duplicate": true
 }
 ```
 
@@ -952,7 +952,7 @@ Do not trust this:
 
 ```json
 {
-  "status": "confirmed"
+    "status": "confirmed"
 }
 ```
 
@@ -1117,25 +1117,24 @@ Something close to:
 
 ```yaml
 services:
+    bridge:
+        build: .
+        ports:
+            - '8000:8000'
+        depends_on:
+            - db
 
-  bridge:
-    build: .
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
+    db:
+        image: postgres:17
+        environment:
+            POSTGRES_DB: settlement
+            POSTGRES_USER: settlement
+            POSTGRES_PASSWORD: settlement
 
-  db:
-    image: postgres:17
-    environment:
-      POSTGRES_DB: settlement
-      POSTGRES_USER: settlement
-      POSTGRES_PASSWORD: settlement
-
-  solidinvoice:
-    image: solidinvoice/solidinvoice
-    ports:
-      - "8080:80"
+    solidinvoice:
+        image: solidinvoice/solidinvoice
+        ports:
+            - '8080:80'
 ```
 
 For early development you could even do:
@@ -1208,7 +1207,7 @@ LLM confidence > 0.9
 SEND MONEY
 ```
 
-This is actually one of the strongest points from *Agents and Ledgers*: it recommends treating model output as input rather than the release condition. :chatgpt-content-reference{index="19"}
+This is actually one of the strongest points from _Agents and Ledgers_: it recommends treating model output as input rather than the release condition. :chatgpt-content-reference{index="19"}
 
 The article specifically critiques the Circle escrow sample because model output can determine release while other stored contract conditions are not used for that decision. :chatgpt-content-reference{index="20"}
 
@@ -1220,21 +1219,21 @@ That creates a nice opportunity for your submission: you are using Arc/Circle in
 
 Since it is already Sep 28 and the hackathon ends Oct 10, I would compress the original schedule slightly.
 
-| Date | Build |
-|---|---|
+| Date   | Build                                            |
+| ------ | ------------------------------------------------ |
 | Sep 28 | Laravel + DB + Settlement entity + Fake provider |
-| Sep 29 | Idempotency + `POST /settlements` |
-| Sep 30 | SolidInvoice adapter |
-| Oct 1 | State machine |
-| Oct 2 | retries + concurrency + failures |
-| Oct 3 | append-only audit trail |
-| Oct 4 | Arc spike: wallet + one test transfer |
-| Oct 5 | `ArcSettlementProvider` |
-| Oct 6 | webhook + proof of settlement |
-| Oct 7 | reconciliation + critical tests |
-| Oct 8 | README + Docker + architecture |
-| Oct 9 | demo recording + pitch |
-| Oct 10 | fresh-clone test + submission |
+| Sep 29 | Idempotency + `POST /settlements`                |
+| Sep 30 | SolidInvoice adapter                             |
+| Oct 1  | State machine                                    |
+| Oct 2  | retries + concurrency + failures                 |
+| Oct 3  | append-only audit trail                          |
+| Oct 4  | Arc spike: wallet + one test transfer            |
+| Oct 5  | `ArcSettlementProvider`                          |
+| Oct 6  | webhook + proof of settlement                    |
+| Oct 7  | reconciliation + critical tests                  |
+| Oct 8  | README + Docker + architecture                   |
+| Oct 9  | demo recording + pitch                           |
+| Oct 10 | fresh-clone test + submission                    |
 
 The original execution backlog follows essentially this same order and defines the final Definition of Done as `UNPAID → settlement requested → duplicate-safe submission → Arc settlement confirmed → PAID → auditable record`. :chatgpt-content-reference{index="21"}
 

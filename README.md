@@ -9,6 +9,7 @@ Arc Settlement Bridge is a resilient financial gateway built in Laravel 12 that 
 ## The Problem Solved
 
 In modern autonomous finance and AI agent ledgers:
+
 1. **Phantom Payments**: Systems record ledger writes that never actually cleared the underlying settlement network.
 2. **Duplicate Disbursals**: Network retries, agent loops, or human double-clicks submit the same invoice payment multiple times, causing repeated money movement.
 3. **Premature Ledger State**: Ledgers mark records as `PAID` upon submission (`SUBMITTED`), before settlement confirmation arrives.
@@ -65,11 +66,13 @@ In modern autonomous finance and AI agent ledgers:
 ## Quickstart
 
 ### Prerequisites
+
 - PHP 8.3+ with `bcmath`, `pdo_sqlite` or `pdo_pgsql`
 - Composer 2+
 - Node.js 20+
 
 ### 1. Installation
+
 ```bash
 # Clone the repository
 git clone https://github.com/Tum-404/arc-settlement-bridge.git
@@ -91,13 +94,17 @@ npm run build
 ```
 
 ### 2. Start Local Development Server
+
 ```bash
 php artisan serve
 ```
+
 Open [http://localhost:8000](http://localhost:8000) to access the interactive dashboard!
 
 ### 3. Docker Compose (Optional)
+
 To run the full stack with PostgreSQL 17 and SolidInvoice in Docker:
+
 ```bash
 docker compose up -d
 ```
@@ -123,51 +130,55 @@ npm run types:check
 ```
 
 ### Critical Test Highlights
+
 - `tests/Feature/Settlement/IdempotencyTest.php`:
-  - `duplicate request creates exactly one settlement and returns existing resource`
-  - `ten identical payment requests result in exactly one database settlement`
-  - `amount normalization guarantees identical key across equivalent decimal string formats`
-  - `concurrent duplicate requests submit to provider only once`
+    - `duplicate request creates exactly one settlement and returns existing resource`
+    - `ten identical payment requests result in exactly one database settlement`
+    - `amount normalization guarantees identical key across equivalent decimal string formats`
+    - `concurrent duplicate requests submit to provider only once`
 - `tests/Feature/Settlement/SafetyHardeningTest.php`:
-  - `a different payment coordinate for an existing invoice is rejected and audited`
-  - `incomplete settlement evidence cannot confirm a transaction`
-  - `unsigned webhook callbacks are rejected when local unsigned mode is disabled`
-  - `a provider connection failure remains recoverable instead of being marked failed`
+    - `a different payment coordinate for an existing invoice is rejected and audited`
+    - `incomplete settlement evidence cannot confirm a transaction`
+    - `unsigned webhook callbacks are rejected when local unsigned mode is disabled`
+    - `a provider connection failure remains recoverable instead of being marked failed`
 - `tests/Feature/Settlement/StateMachineTest.php`:
-  - `submitted settlement does not mark invoice paid (SUBMITTED != PAID)`
-  - `reconciliation cannot occur on unconfirmed settlement`
-  - `failed settlement records failure details and leaves invoice unpaid`
+    - `submitted settlement does not mark invoice paid (SUBMITTED != PAID)`
+    - `reconciliation cannot occur on unconfirmed settlement`
+    - `failed settlement records failure details and leaves invoice unpaid`
 - `tests/Feature/Settlement/WebhookTest.php`:
-  - `replayed webhook delivery is safe and idempotent`
-  - `mismatched webhook amount rejects confirmation and prevents reconciliation`
-  - `mismatched webhook recipient rejects confirmation and prevents reconciliation`
+    - `replayed webhook delivery is safe and idempotent`
+    - `mismatched webhook amount rejects confirmation and prevents reconciliation`
+    - `mismatched webhook recipient rejects confirmation and prevents reconciliation`
 - `tests/Feature/Settlement/ReconciliationTest.php`:
-  - `confirmed settlement marks invoice paid with verifiable receipt evidence`
+    - `confirmed settlement marks invoice paid with verifiable receipt evidence`
 - `tests/Feature/Settlement/FullEndToEndTest.php`:
-  - `full end-to-end lifecycle: 10 identical requests -> 1 database row -> 1 provider transfer -> webhook confirmed -> 1 invoice reconciliation`
+    - `full end-to-end lifecycle: 10 identical requests -> 1 database row -> 1 provider transfer -> webhook confirmed -> 1 invoice reconciliation`
 
 ---
 
 ## Operational Commands
 
-| Command | Purpose |
-|---|---|
+| Command                                   | Purpose                                                                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `php artisan settlements:recover-unknown` | Safely checks and retries settlements in ambiguous submission states (`SUBMISSION_UNKNOWN`) without risking duplicate money movement. |
-| `php artisan test` | Runs the full Pest test suite verifying all invariants. |
-| `php artisan migrate` | Executes database migrations including unique constraints and audit tables. |
+| `php artisan test`                        | Runs the full Pest test suite verifying all invariants.                                                                               |
+| `php artisan migrate`                     | Executes database migrations including unique constraints and audit tables.                                                           |
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/settlements` | List all settlements and audit events |
-| `POST` | `/api/settlements` | Submit an idempotent payment request (`source`, `invoice_id`, `recipient`, `amount`, `currency`) |
-| `GET` | `/api/settlements/{id}` | Retrieve settlement details and complete event timeline |
-| `POST` | `/api/settlements/{id}/simulate-confirm` | Simulate external confirmation and trigger invoice reconciliation |
-| `POST` | `/api/webhooks/arc` | Webhook endpoint for Circle / Arc Testnet notifications |
-| `POST` | `/demo/reset` | Reset demo state for interactive presentations |
+| Method | Endpoint                                 | Description                                                                                      |
+| ------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET`  | `/api/settlements`                       | List all settlements and audit events                                                            |
+| `POST` | `/api/settlements`                       | Submit an idempotent payment request (`source`, `invoice_id`, `recipient`, `amount`, `currency`) |
+| `GET`  | `/api/settlements/{id}`                  | Retrieve settlement details and complete event timeline                                          |
+| `POST` | `/api/settlements/{id}/simulate-confirm` | Simulate external confirmation and trigger invoice reconciliation                                |
+| `POST` | `/api/webhooks/arc`                      | Webhook endpoint for Circle / Arc Testnet notifications                                          |
+| `POST` | `/demo/reset`                            | Reset demo state for interactive presentations                                                   |
+
+`simulate-confirm` and `demo/reset` are demo-only endpoints. They must not be
+registered in a public production deployment.
 
 ---
 
@@ -199,4 +210,5 @@ SOLIDINVOICE_TOKEN=
 ---
 
 ## License
+
 MIT
