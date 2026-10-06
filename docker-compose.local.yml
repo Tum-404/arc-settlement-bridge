@@ -1,0 +1,247 @@
+# =============================================================================
+# Arc Settlement Bridge — Local Development & Flow Debugging Stack
+# =============================================================================
+# Run all services locally:
+#   docker compose -f docker-compose.local.yml up --build
+#
+# Services included:
+#   1. bridge       - Laravel Settlement Bridge API & Web UI (http://localhost:8000)
+#   2. queue        - Background queue worker (reconciliation & async jobs)
+#   3. poller       - Automated SolidInvoice ingestion poller (syncs payable invoices)
+#   4. db           - PostgreSQL 17 (settlement + solidinvoice databases, port 5432)
+#   5. solidinvoice - Open-source Invoicing ERP (http://localhost:8765)
+#
+# Persistence:
+#   Explicitly-named Docker volumes (arc_bridge_postgres_data & arc_solidinvoice_data)
+#   guarantee that database records, invoices, and wizard setup PERSIST across
+#   `docker compose down` and container rebuilds.
+#
+# Debugging:
+#   - PostgreSQL port 5432 is published to localhost for direct DB GUI / CLI inspection.
+#   - Real-time logging streams to container stdout/stderr AND host ./storage/logs/.
+#   - Live code volume mounts enable instant PHP/config/route tweaks without rebuilds.
+#   - Unsigned webhook simulation allowed locally for fast testing.
+# =============================================================================
+
+services:
+    # ---------------------------------------------------------------------------
+    # 1. Settlement Bridge (Laravel Web Application & API)
+    # ---------------------------------------------------------------------------
+    bridge:
+        build:
+            context: .
+            dockerfile: docker/Dockerfile
+        restart: unless-stopped
+        command:
+            [
+                '/var/www/html/docker/boot-local.sh',
+                'php',
+                'artisan',
+                'serve',
+                '--host=0.0.0.0',
+                '--port=8000',
+            ]
+        env_file:
+            - path: .env
+              required: false
+        environment: &bridge-environment
+            APP_NAME: 'Arc Settlement Bridge'
+            APP_ENV: local
+            APP_DEBUG: 'true'
+            APP_URL: http://localhost:8000
+            APP_KEY: ${APP_KEY:-base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+
+            # PostgreSQL Connection
+            DB_CONNECTION: pgsql
+            DB_HOST: db
+            DB_PORT: '5432'
+            DB_DATABASE: ${DB_DATABASE:-settlement}
+            DB_USERNAME: ${DB_USERNAME:-settlement_bridge}
+            DB_PASSWORD: ${DB_PASSWORD:-settlement_local_password}
+
+            # Storage, Sessions, and Queues
+            CACHE_STORE: database
+            SESSION_DRIVER: database
+            QUEUE_CONNECTION: database
+
+            # Real-Time Logging & Debugging
+            LOG_CHANNEL: stack
+            LOG_STACK: stderr,single
+            LOG_LEVEL: ${LOG_LEVEL:-debug}
+            SETTLEMENT_LOG_LEVEL: ${SETTLEMENT_LOG_LEVEL:-debug}
+
+            # Settlement Core & Invoicing Gateway
+            SETTLEMENT_PROVIDER: ${SETTLEMENT_PROVIDER:-fake}
+            INVOICE_GATEWAY: ${INVOICE_GATEWAY:-solidinvoice}
+            SETTLEMENT_ALLOW_UNSIGNED_WEBHOOKS: ${SETTLEMENT_ALLOW_UNSIGNED_WEBHOOKS:-true}
+
+            # SolidInvoice Integration Settings
+            SOLIDINVOICE_URL: http://solidinvoice:8765
+            SOLIDINVOICE_TOKEN: ${SOLIDINVOICE_TOKEN:-}
+            SOLIDINVOICE_WEBHOOK_SECRET: ${SOLIDINVOICE_WEBHOOK_SECRET:-}
+            SOLIDINVOICE_POLL_LIMIT: ${SOLIDINVOICE_POLL_LIMIT:-100}
+            SOLIDINVOICE_POLL_BACKOFF_SECONDS: ${SOLIDINVOICE_POLL_BACKOFF_SECONDS:-15}
+            SOLIDINVOICE_HOST_HEADER: ${SOLIDINVOICE_HOST_HEADER:-localhost}
+
+            # Circle Arc Testnet Configuration (for live provider testing)
+            CIRCLE_API_KEY: ${CIRCLE_API_KEY:-}
+            CIRCLE_ENTITY_SECRET: ${CIRCLE_ENTITY_SECRET:-}
+            CIRCLE_BLOCKCHAIN: ${CIRCLE_BLOCKCHAIN:-ARC-TESTNET}
+            CIRCLE_API_BASE_URL: ${CIRCLE_API_BASE_URL:-https://api.circle.com}
+            ARC_WALLET_ID: ${ARC_WALLET_ID:-}
+            ARC_WALLET_ADDRESS: ${ARC_WALLET_ADDRESS:-}
+            ARC_USDC_CONTRACT_ADDRESS: ${ARC_USDC_CONTRACT_ADDRESS:-}
+            ARC_TOKEN_ID: ${ARC_TOKEN_ID:-}
+            ARC_WEBHOOK_SECRET: ${ARC_WEBHOOK_SECRET:-}
+        ports:
+            - '8000:8000'
+        volumes:
+            # Live code mounting: edit PHP/routes/views on host and test immediately
+            - ./app:/var/www/html/app
+            - ./config:/var/www/html/config
+            - ./database:/var/www/html/database
+            - ./routes:/var/www/html/routes
+            - ./resources:/var/www/html/resources
+            # Host log binding: inspect storage/logs/ directly in your IDE
+            - ./storage/logs:/var/www/html/storage/logs
+            # Cache & session directory persistence
+            - bridge_storage_data:/var/www/html/storage/framework
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'php -r ''exit((int) @file_get_contents("http://127.0.0.1:8000/up") !== 200);''',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+            start_period: 10s
+        depends_on:
+            db:
+                condition: service_healthy
+            solidinvoice:
+                condition: service_started
+
+    # ---------------------------------------------------------------------------
+    # 2. Queue Worker (Background Asynchronous Execution)
+    # ---------------------------------------------------------------------------
+    queue:
+        build:
+            context: .
+            dockerfile: docker/Dockerfile
+        restart: unless-stopped
+        command:
+            [
+                'php',
+                'artisan',
+                'queue:work',
+                '--sleep=2',
+                '--tries=3',
+                '--timeout=90',
+            ]
+        environment: *bridge-environment
+        volumes:
+            - ./app:/var/www/html/app
+            - ./config:/var/www/html/config
+            - ./routes:/var/www/html/routes
+            - ./storage/logs:/var/www/html/storage/logs
+            - bridge_storage_data:/var/www/html/storage/framework
+        depends_on:
+            bridge:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+
+    # ---------------------------------------------------------------------------
+    # 3. SolidInvoice Poller (Automatic Ingestion Daemon)
+    # ---------------------------------------------------------------------------
+    poller:
+        build:
+            context: .
+            dockerfile: docker/Dockerfile
+        restart: unless-stopped
+        command:
+            - /bin/sh
+            - -c
+            - |
+                echo "[poller] SolidInvoice poller daemon started (interval: $${POLL_INTERVAL:-15}s)"
+                while true; do
+                  php artisan settlements:poll-solidinvoice --limit=$${SOLIDINVOICE_POLL_LIMIT:-100} || true
+                  sleep $${POLL_INTERVAL:-15}
+                done
+        environment:
+            <<: *bridge-environment
+            POLL_INTERVAL: ${POLL_INTERVAL:-15}
+        volumes:
+            - ./app:/var/www/html/app
+            - ./config:/var/www/html/config
+            - ./routes:/var/www/html/routes
+            - ./storage/logs:/var/www/html/storage/logs
+            - bridge_storage_data:/var/www/html/storage/framework
+        depends_on:
+            bridge:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+            solidinvoice:
+                condition: service_started
+
+    # ---------------------------------------------------------------------------
+    # 4. PostgreSQL 17 (Shared Local Database)
+    # ---------------------------------------------------------------------------
+    db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: ${DB_DATABASE:-settlement}
+            POSTGRES_USER: ${DB_USERNAME:-settlement_bridge}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-settlement_local_password}
+        ports:
+            # Expose PostgreSQL to host (localhost:5432) for DBeaver / TablePlus / psql debugging
+            - '${DB_PORT:-5432}:5432'
+        volumes:
+            # Persistent PostgreSQL cluster storage
+            - bridge_postgres_data:/var/lib/postgresql/data
+            # Initializes both settlement and solidinvoice databases on first run
+            - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U ${DB_USERNAME:-settlement_bridge} -d ${DB_DATABASE:-settlement}',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    # ---------------------------------------------------------------------------
+    # 5. SolidInvoice (Invoicing & Accounting ERP)
+    # ---------------------------------------------------------------------------
+    solidinvoice:
+        image: solidinvoice/solidinvoice:3.0.1
+        restart: unless-stopped
+        environment:
+            SOLIDINVOICE_ENV: ${SOLIDINVOICE_ENV:-prod}
+            SOLIDINVOICE_DEBUG: '${SOLIDINVOICE_DEBUG:-0}'
+            APP_SECRET: ${SOLIDINVOICE_APP_SECRET:-c8e6dfd6e4b4765a0b73b22416f0d9c4}
+            SOLIDINVOICE_DATABASE_URL: postgresql://${DB_USERNAME:-settlement_bridge}:${DB_PASSWORD:-settlement_local_password}@db:5432/solidinvoice?serverVersion=17&charset=utf8
+            DATABASE_URL: postgresql://${DB_USERNAME:-settlement_bridge}:${DB_PASSWORD:-settlement_local_password}@db:5432/solidinvoice?serverVersion=17&charset=utf8
+        ports:
+            - '8765:8765'
+        volumes:
+            # Preserves wizard completion, API token settings, and encryption keys
+            - solidinvoice_data:/etc/solidinvoice
+        depends_on:
+            db:
+                condition: service_healthy
+
+# =============================================================================
+# Explicit Named Volumes: Persist data across `docker compose down`
+# =============================================================================
+volumes:
+    bridge_postgres_data:
+        name: arc_bridge_postgres_data
+    solidinvoice_data:
+        name: arc_solidinvoice_data
+    bridge_storage_data:
+        name: arc_bridge_storage_data

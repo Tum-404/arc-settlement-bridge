@@ -15,7 +15,11 @@ services:
             db:
                 condition: service_healthy
         healthcheck:
-            test: ['CMD-SHELL', "php -r 'exit((int) @file_get_contents(\"http://127.0.0.1:8000/up\") !== 200);'"]
+            test:
+                [
+                    'CMD-SHELL',
+                    'php -r ''exit((int) @file_get_contents("http://127.0.0.1:8000/up") !== 200);''',
+                ]
             interval: 30s
             timeout: 5s
             retries: 3
@@ -46,7 +50,8 @@ services:
         volumes:
             - pgdata:/var/lib/postgresql/data
         healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+            test:
+                ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
             interval: 10s
             timeout: 5s
             retries: 5
@@ -58,6 +63,8 @@ services:
         restart: unless-stopped
         # SolidInvoice persists its own setup and database settings here. Without
         # this volume it falls back to an unwritable SQLite database path.
+        ports:
+            - '8765:8765'
         volumes:
             - solidinvoice_data:/etc/solidinvoice
         depends_on:

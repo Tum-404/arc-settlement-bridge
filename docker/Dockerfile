@@ -27,6 +27,8 @@ WORKDIR /var/www/html
 
 COPY . .
 
+RUN chmod +x docker/boot-local.sh docker/init-db.sh
+
 # These directories are ignored from the build context, but Laravel creates
 # package manifests and runtime files inside them during Composer installation.
 RUN mkdir -p \
