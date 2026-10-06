@@ -15,6 +15,7 @@ final class ArcSettlementProvider implements SettlementProvider
         private readonly CircleClient $circle,
         private readonly string $walletId,
         private readonly ?string $tokenAddress = null,
+        private readonly ?string $tokenId = null,
     ) {}
 
     public function submit(Settlement $settlement): SubmissionResult
@@ -25,6 +26,7 @@ final class ArcSettlementProvider implements SettlementProvider
             amount: (string) $settlement->amount,
             idempotencyKey: $settlement->provider_idempotency_key ?? $settlement->idempotency_key,
             tokenAddress: $this->tokenAddress,
+            tokenId: $this->tokenId,
         );
 
         return new SubmissionResult(
