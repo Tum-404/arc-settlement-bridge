@@ -63,7 +63,55 @@ In modern autonomous finance and AI agent ledgers:
 
 ---
 
-## Quickstart
+## Quickstart: one-command local stack
+
+The fastest way to run the Bridge with SolidInvoice is Docker Desktop 4+:
+
+```bash
+git clone https://github.com/Tum-404/arc-settlement-bridge.git
+cd arc-settlement-bridge
+docker compose -f docker-compose.local.yml up --build
+```
+
+This starts the Bridge at [http://localhost:8000](http://localhost:8000),
+SolidInvoice at [http://localhost:8765](http://localhost:8765), PostgreSQL,
+and a poller that runs every minute. The Bridge database, SolidInvoice setup,
+and invoices persist in Docker volumes.
+
+On first use, complete SolidInvoice's normal browser setup. Its PostgreSQL
+connection is already configured by the local stack—do not select SQLite or
+enter database credentials in the wizard. Create an API token and give the
+invoice recipient a `crypto_address` custom field. Restart the stack with that
+token; this is the only Bridge integration configuration:
+
+```bash
+SOLIDINVOICE_TOKEN=your-token docker compose -f docker-compose.local.yml up -d
+```
+
+In PowerShell:
+
+```powershell
+$env:SOLIDINVOICE_TOKEN = 'your-token'
+docker compose -f docker-compose.local.yml up -d
+```
+
+The local stack intentionally uses `FakeSettlementProvider`, so users can prove
+the end-to-end workflow without credentials or test funds. To stop it, use
+`docker compose -f docker-compose.local.yml down`. Add `-v` only when you
+intentionally want to erase the local Bridge and SolidInvoice data.
+
+If the first-run database credentials were entered incorrectly, reset the
+local-only volumes and start again:
+
+```bash
+docker compose -f docker-compose.local.yml down -v
+docker compose -f docker-compose.local.yml up --build
+```
+
+`down -v` permanently deletes local invoices and Bridge audit data; do not use
+it for a stack that contains data you need to keep.
+
+## Manual installation
 
 ### Prerequisites
 
@@ -101,7 +149,7 @@ php artisan serve
 
 Open [http://localhost:8000](http://localhost:8000) to access the interactive dashboard!
 
-### 3. Docker Compose (Optional)
+### 3. Production Docker Compose
 
 To run the full stack with PostgreSQL 17 and SolidInvoice in Docker:
 
@@ -128,6 +176,33 @@ vendor/bin/pint --test
 # Type-check Vue frontend
 npm run types:check
 ```
+
+### SolidInvoice polling (recommended integration)
+
+SolidInvoice remains an untouched upstream application. Run the Bridge worker
+on a cron schedule (or Laravel scheduler); it reads payable `pending` and
+`overdue` invoices using the SolidInvoice REST API and ignores paid, cancelled,
+and actively-tracked invoices:
+
+```bash
+php artisan settlements:poll-solidinvoice
+```
+
+Use `--limit=100` to cap an iteration. API connection failures are logged with
+the configured `SOLIDINVOICE_POLL_BACKOFF_SECONDS` and return a non-zero exit
+code so the process supervisor can retry without creating a duplicate payment.
+The Bridge's unique idempotency key and provider idempotency key remain the
+final duplicate-disbursement protection.
+
+For a one-minute cron schedule:
+
+```cron
+* * * * * cd /path/to/arc-settlement-bridge && php artisan settlements:poll-solidinvoice >> /dev/null 2>&1
+```
+
+The older signed webhook endpoint is retained only for backwards compatibility;
+the poller is the supported SolidInvoice integration and does not require a
+Symfony subscriber, plugin, or database access in SolidInvoice.
 
 ### Critical Test Highlights
 
@@ -158,11 +233,12 @@ npm run types:check
 
 ## Operational Commands
 
-| Command                                   | Purpose                                                                                                                               |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `php artisan settlements:recover-unknown` | Safely checks and retries settlements in ambiguous submission states (`SUBMISSION_UNKNOWN`) without risking duplicate money movement. |
-| `php artisan test`                        | Runs the full Pest test suite verifying all invariants.                                                                               |
-| `php artisan migrate`                     | Executes database migrations including unique constraints and audit tables.                                                           |
+| Command                                     | Purpose                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `php artisan settlements:recover-unknown`   | Safely checks and retries settlements in ambiguous submission states (`SUBMISSION_UNKNOWN`) without risking duplicate money movement. |
+| `php artisan settlements:poll-solidinvoice` | Out-of-process poller for payable SolidInvoice invoices; no SolidInvoice source modification required.                                |
+| `php artisan test`                          | Runs the full Pest test suite verifying all invariants.                                                                               |
+| `php artisan migrate`                       | Executes database migrations including unique constraints and audit tables.                                                           |
 
 ---
 
@@ -179,6 +255,9 @@ npm run types:check
 
 `simulate-confirm` and `demo/reset` are demo-only endpoints. They must not be
 registered in a public production deployment.
+
+For the automatic SolidInvoice-to-Bridge trigger contract, including HMAC
+signing and retry behavior, see [docs/solidinvoice-trigger.md](docs/solidinvoice-trigger.md).
 
 ---
 
@@ -205,6 +284,8 @@ ARC_WEBHOOK_SECRET=
 # SolidInvoice API Settings
 SOLIDINVOICE_URL=http://localhost:8080
 SOLIDINVOICE_TOKEN=
+SOLIDINVOICE_POLL_LIMIT=100
+SOLIDINVOICE_POLL_BACKOFF_SECONDS=60
 ```
 
 ---
