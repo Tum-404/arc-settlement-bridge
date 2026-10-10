@@ -52,6 +52,22 @@ final class FakeInvoiceGateway implements InvoiceGateway
         return self::$invoices;
     }
 
+    public function listEligible(int $limit): array
+    {
+        $invoices = [];
+        foreach ($this->getStorage() as $id => $invoice) {
+            if (! in_array(strtolower($invoice['status']), ['unpaid', 'pending', 'overdue'], true)) {
+                continue;
+            }
+            $invoices[] = $this->get($id);
+            if (count($invoices) >= $limit) {
+                break;
+            }
+        }
+
+        return $invoices;
+    }
+
     public function get(string $invoiceId): ExternalInvoice
     {
         $storage = $this->getStorage();

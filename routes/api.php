@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\ArcWebhookController;
 use App\Http\Controllers\Api\SettlementController;
+use App\Http\Controllers\Api\SolidInvoiceWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('settlements')->group(function (): void {
@@ -16,3 +17,4 @@ Route::prefix('settlements')->group(function (): void {
 });
 
 Route::post('/webhooks/arc', [ArcWebhookController::class, 'handle'])->name('api.webhooks.arc');
+Route::post('/webhooks/solidinvoice', [SolidInvoiceWebhookController::class, 'handle'])->name('api.webhooks.solidinvoice');
