@@ -17,6 +17,7 @@ use App\Domain\Settlement\Services\SettlementStateMachine;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final class CreateSettlement
@@ -62,7 +63,9 @@ final class CreateSettlement
         }
 
         $invoice = $this->invoiceGateway->get(trim($command->invoiceId));
-        if (strtolower($invoice->status) !== 'unpaid') {
+        // SolidInvoice uses "pending" for an issued, unpaid invoice. The
+        // fake gateway retains "unpaid" for concise local demos.
+        if (! in_array(strtolower($invoice->status), ['unpaid', 'pending'], true)) {
             throw SettlementRequestConflictException::forInvoice($command->source, $command->invoiceId);
         }
         if (strtolower(trim($invoice->recipient)) !== strtolower(trim($command->recipient))) {
@@ -108,6 +111,12 @@ final class CreateSettlement
                         'currency' => $settlement->currency,
                         'recipient' => $settlement->recipient,
                     ],
+                ]);
+                Log::channel('settlement')->info('Settlement created.', [
+                    'settlement_id' => $settlement->id,
+                    'source' => $settlement->source,
+                    'invoice_id' => $settlement->source_invoice_id,
+                    'status' => $settlement->status->value,
                 ]);
             } catch (UniqueConstraintViolationException) {
                 // Concurrent race condition caught by database unique constraint
@@ -186,6 +195,12 @@ final class CreateSettlement
                     'tx_hash' => $result->txHash,
                 ],
             ]);
+            Log::channel('settlement')->info('Settlement submitted to provider.', [
+                'settlement_id' => $settlement->id,
+                'provider' => $settlement->provider,
+                'provider_transaction_id' => $settlement->provider_transaction_id,
+                'status' => $settlement->status->value,
+            ]);
         } catch (ConnectionException $e) {
             $this->stateMachine->assertCanTransition($settlement->status, SettlementStatus::SUBMISSION_UNKNOWN);
             $settlement->update([
@@ -198,6 +213,11 @@ final class CreateSettlement
                 'settlement_id' => $settlement->id,
                 'type' => SettlementEventType::PROVIDER_TIMEOUT,
                 'payload' => ['reason' => $e->getMessage()],
+            ]);
+            Log::channel('settlement')->warning('Settlement submission outcome is unknown.', [
+                'settlement_id' => $settlement->id,
+                'provider' => $this->provider->name(),
+                'error' => $e->getMessage(),
             ]);
         } catch (Throwable $e) {
             $this->stateMachine->assertCanTransition(
@@ -220,6 +240,12 @@ final class CreateSettlement
                     'failure_code' => 'SUBMISSION_FAILED',
                     'reason' => $e->getMessage(),
                 ],
+            ]);
+            Log::channel('settlement')->error('Settlement submission failed.', [
+                'settlement_id' => $settlement->id,
+                'provider' => $this->provider->name(),
+                'error' => $e->getMessage(),
+                'exception' => $e::class,
             ]);
         }
     }

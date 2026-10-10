@@ -73,6 +73,18 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Financial lifecycle records are separated from general application
+        // output so operators can investigate a settlement without hunting
+        // through framework noise. The database event ledger remains the
+        // authoritative audit trail.
+        'settlement' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/settlement.log'),
+            'level' => env('SETTLEMENT_LOG_LEVEL', 'info'),
+            'max_files' => env('SETTLEMENT_LOG_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
         'monthly' => [
             'driver' => 'monthly',
             'path' => storage_path('logs/laravel.log'),

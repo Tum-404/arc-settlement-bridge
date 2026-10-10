@@ -12,6 +12,8 @@ use App\Domain\Settlement\Models\Settlement;
 use App\Domain\Settlement\Models\SettlementEvent;
 use App\Domain\Settlement\Services\SettlementStateMachine;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class ReconcileSettlement
 {
@@ -48,11 +50,35 @@ final class ReconcileSettlement
             providerTransactionId: $settlement->provider_transaction_id,
         );
 
-        $this->invoiceGateway->markPaid(
-            invoiceId: $settlement->source_invoice_id,
-            receipt: $receipt,
-            idempotencyKey: $settlement->idempotency_key,
-        );
+        try {
+            $this->invoiceGateway->markPaid(
+                invoiceId: $settlement->source_invoice_id,
+                receipt: $receipt,
+                idempotencyKey: $settlement->idempotency_key,
+            );
+        } catch (Throwable $e) {
+            DB::transaction(function () use ($settlement, $e): void {
+                /** @var Settlement $locked */
+                $locked = Settlement::query()->lockForUpdate()->findOrFail($settlement->id);
+                $locked->update(['reconciliation_status' => 'failed']);
+                SettlementEvent::create([
+                    'settlement_id' => $locked->id,
+                    'type' => SettlementEventType::RECONCILIATION_FAILED,
+                    'payload' => [
+                        'source_invoice_id' => $locked->source_invoice_id,
+                        'reason' => $e->getMessage(),
+                    ],
+                ]);
+            });
+            Log::channel('settlement')->error('Invoice reconciliation failed after confirmed settlement.', [
+                'settlement_id' => $settlement->id,
+                'invoice_id' => $settlement->source_invoice_id,
+                'error' => $e->getMessage(),
+                'exception' => $e::class,
+            ]);
+
+            throw $e;
+        }
 
         DB::transaction(function () use ($settlement): void {
             /** @var Settlement $locked */
@@ -73,5 +99,10 @@ final class ReconcileSettlement
                 ],
             ]);
         });
+
+        Log::channel('settlement')->info('Invoice reconciled after settlement confirmation.', [
+            'settlement_id' => $settlement->id,
+            'invoice_id' => $settlement->source_invoice_id,
+        ]);
     }
 }

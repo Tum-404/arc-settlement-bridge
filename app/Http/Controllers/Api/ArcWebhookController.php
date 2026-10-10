@@ -35,7 +35,7 @@ final class ArcWebhookController extends Controller
         }
 
         $payload = $request->json()->all();
-        $eventId = (string) ($payload['eventId'] ?? $payload['id'] ?? $request->header('Circle-Event-Id') ?? hash('sha256', $request->getContent()));
+        $eventId = (string) ($payload['eventId'] ?? $payload['notificationId'] ?? $payload['id'] ?? $request->header('Circle-Event-Id') ?? hash('sha256', $request->getContent()));
 
         // 2. Enforce webhook idempotency
         try {
@@ -59,7 +59,11 @@ final class ArcWebhookController extends Controller
         $webhookRecord->update(['processing_status' => 'processing', 'last_error' => null]);
 
         // 3. Extract transaction details
-        $transaction = $payload['data']['transaction'] ?? $payload['transaction'] ?? $payload;
+        $transaction = $payload['notification']['transaction']
+            ?? $payload['notification']
+            ?? $payload['data']['transaction']
+            ?? $payload['transaction']
+            ?? $payload;
         $state = strtoupper((string) ($transaction['state'] ?? $transaction['status'] ?? ''));
         $providerTxId = (string) ($transaction['id'] ?? $transaction['transactionId'] ?? $transaction['provider_transaction_id'] ?? '');
 
@@ -78,7 +82,7 @@ final class ArcWebhookController extends Controller
                 'provider_transaction_id' => $providerTxId,
                 'recipient' => isset($transaction['destinationAddress']) ? (string) $transaction['destinationAddress'] : (isset($transaction['recipient']) ? (string) $transaction['recipient'] : null),
                 'amount' => isset($transaction['amounts'][0]) ? (string) $transaction['amounts'][0] : (isset($transaction['amount']) ? (string) $transaction['amount'] : null),
-                'currency' => isset($transaction['currency']) ? (string) $transaction['currency'] : null,
+                'currency' => isset($transaction['currency']) ? (string) $transaction['currency'] : 'USDC',
                 'tx_hash' => isset($transaction['txHash']) ? (string) $transaction['txHash'] : (isset($transaction['tx_hash']) ? (string) $transaction['tx_hash'] : null),
             ];
 

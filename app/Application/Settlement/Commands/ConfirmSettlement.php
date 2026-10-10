@@ -12,6 +12,7 @@ use App\Domain\Settlement\Models\SettlementEvent;
 use App\Domain\Settlement\Services\IdempotencyKeyGenerator;
 use App\Domain\Settlement\Services\SettlementStateMachine;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 final class ConfirmSettlement
 {
@@ -109,6 +110,13 @@ final class ConfirmSettlement
         if ($settlement->isConfirmed() && $settlement->reconciliation_status !== 'succeeded') {
             $this->reconcileSettlement->execute($settlement);
         }
+
+        Log::channel('settlement')->info('Settlement confirmation verified.', [
+            'settlement_id' => $settlement->id,
+            'provider_transaction_id' => $settlement->provider_transaction_id,
+            'tx_hash' => $settlement->tx_hash,
+            'status' => $settlement->status->value,
+        ]);
 
         return $settlement->fresh(['events']);
     }
