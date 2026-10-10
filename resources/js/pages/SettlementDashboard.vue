@@ -709,6 +709,31 @@ async function resetDemoData() {
                             </div>
                         </div>
 
+                        <div
+                            v-if="
+                                activeSettlement.failure_code ||
+                                activeSettlement.failure_reason
+                            "
+                            class="rounded-xl border border-rose-500/40 bg-rose-950/30 p-3 text-xs"
+                        >
+                            <p class="font-bold text-rose-300">
+                                Settlement error
+                            </p>
+                            <p class="mt-1 font-mono text-rose-200">
+                                {{
+                                    activeSettlement.failure_code ||
+                                    'UNCLASSIFIED_ERROR'
+                                }}
+                            </p>
+                            <p class="mt-1 break-words text-rose-100/80">
+                                {{ activeSettlement.failure_reason }}
+                            </p>
+                            <p class="mt-2 text-[10px] text-rose-200/60">
+                                Full operational details:
+                                storage/logs/settlement-*.log
+                            </p>
+                        </div>
+
                         <!-- Technical Coordinates Details -->
                         <div
                             class="grid grid-cols-1 gap-4 rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 font-mono text-xs sm:grid-cols-2"
@@ -809,6 +834,10 @@ async function resetDemoData() {
                                             event.type === 'INVOICE_RECONCILED'
                                                 ? 'border-teal-400 bg-teal-400'
                                                 : '',
+                                            event.type ===
+                                            'RECONCILIATION_FAILED'
+                                                ? 'border-rose-400 bg-rose-400'
+                                                : '',
                                         ]"
                                     ></div>
 
@@ -840,6 +869,10 @@ async function resetDemoData() {
                                                     event.type ===
                                                     'INVOICE_RECONCILED'
                                                         ? 'bg-teal-500/20 text-teal-300'
+                                                        : '',
+                                                    event.type ===
+                                                    'RECONCILIATION_FAILED'
+                                                        ? 'bg-rose-500/20 text-rose-300'
                                                         : '',
                                                 ]"
                                             >
