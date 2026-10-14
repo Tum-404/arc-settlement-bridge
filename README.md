@@ -161,10 +161,10 @@ docker compose up -d
 
 ## Running the Automated Test Suite
 
-The test suite contains 20 automated tests (159 assertions) covering concurrency races, idempotency spam, state transitions, webhook verification, safety hardening, and full end-to-end reconciliation:
+The test suite currently has 50 passing tests (271 assertions) with one PostgreSQL-only test skipped under the default SQLite configuration. It covers concurrency races, idempotency spam, state transitions, webhook verification, safety hardening, recipient controls, and full end-to-end reconciliation:
 
 ```bash
-# Run Pest test suite (all 20 tests pass)
+# Run the Pest test suite
 php artisan test
 
 # Check static typing with PHPStan (Level max/strict, 0 errors)
@@ -247,7 +247,7 @@ Symfony subscriber, plugin, or database access in SolidInvoice.
 | Method | Endpoint                                 | Description                                                                                      |
 | ------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `GET`  | `/api/settlements`                       | List all settlements and audit events                                                            |
-| `POST` | `/api/settlements`                       | Submit an idempotent payment request (`source`, `invoice_id`, `recipient`, `amount`, `currency`) |
+| `POST` | `/api/settlements`                       | Submit an idempotent payment request (`source`, `invoice_id`, `recipient`, `amount`, `currency`, optional `client_id`) |
 | `GET`  | `/api/settlements/{id}`                  | Retrieve settlement details and complete event timeline                                          |
 | `POST` | `/api/settlements/{id}/simulate-confirm` | Simulate external confirmation and trigger invoice reconciliation                                |
 | `POST` | `/api/webhooks/arc`                      | Webhook endpoint for Circle / Arc Testnet notifications                                          |

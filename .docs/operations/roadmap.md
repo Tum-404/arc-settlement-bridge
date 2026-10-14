@@ -2,7 +2,7 @@
 
 ## MVP status
 
-The deterministic settlement core is implemented and verified locally: `php artisan test` passes with 20 tests / 159 assertions, PHPStan is clean, and Pint passes.
+The deterministic settlement core is implemented and functionally verified locally. As of 2026-10-14, `php artisan test` passes with 50 passing tests / 271 assertions (one PostgreSQL-only test is skipped), `vendor/bin/phpstan analyse --memory-limit=1G`, `vendor/bin/pint --test`, and `npm run types:check` all pass.
 
 ### Completed
 
@@ -20,9 +20,13 @@ The deterministic settlement core is implemented and verified locally: `php arti
 - [x] Fail-closed Arc webhook signature verification outside explicit local/testing configuration
 - [x] Recovery command: `php artisan settlements:recover-unknown`
 - [x] Tests for duplicates, invoice-coordinate conflicts, timeout handling, failures, incomplete evidence, webhook replay, and invalid transitions
+- [x] Approved-recipient enforcement: source invoice client is authoritative; optional API `client_id` is validated as a matching fallback only when needed
+
+## Current work in progress
+
+- [ ] Add a real PostgreSQL concurrency run. The test suite contains a PostgreSQL-only duplicate-pressure test but skips it under the default in-memory SQLite configuration.
 
 ## Remaining before Arc testnet demo
-
 - [ ] Provision a Circle developer-controlled wallet and set `CIRCLE_API_KEY`, `ARC_WALLET_ID`, token address, and `ARC_WEBHOOK_SECRET`.
 - [ ] Keep `SETTLEMENT_ALLOW_UNSIGNED_WEBHOOKS=false` when `SETTLEMENT_PROVIDER=arc`.
 - [ ] Submit and reconcile one real Arc testnet USDC transaction; retain its provider ID and transaction hash as demo evidence.
