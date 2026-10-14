@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Domain\Settlement\Contracts\InvoiceGateway;
 use App\Domain\Settlement\Models\ProviderWebhookEvent;
+use App\Domain\Settlement\Models\Recipient;
 use App\Domain\Settlement\Models\Settlement;
 use App\Domain\Settlement\Models\SettlementEvent;
 use App\Infrastructure\Providers\FakeSettlementProvider;
@@ -44,9 +45,28 @@ final class DashboardController extends Controller
             ->limit(25)
             ->get();
 
+        $recipients = Recipient::query()
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $webhookEvents = ProviderWebhookEvent::query()
+            ->orderBy('id', 'desc')
+            ->limit(20)
+            ->get();
+
+        $domainStats = [
+            'settlements_count' => Settlement::count(),
+            'events_count' => SettlementEvent::count(),
+            'recipients_count' => Recipient::count(),
+            'webhooks_count' => ProviderWebhookEvent::count(),
+        ];
+
         return Inertia::render('SettlementDashboard', [
             'invoices' => $invoices,
             'settlements' => $settlements,
+            'recipients' => $recipients,
+            'webhookEvents' => $webhookEvents,
+            'domainStats' => $domainStats,
             'provider' => config('settlement.provider', 'fake'),
             'invoiceGateway' => config('settlement.invoice_gateway', 'fake'),
             'arcBlockchain' => config('settlement.arc.blockchain', 'ARC-TESTNET'),

@@ -27,7 +27,7 @@ interface Settlement {
     recipient: string;
     amount: string;
     currency: string;
-    status: 'created' | 'submitted' | 'confirmed' | 'failed';
+    status: 'created' | 'submitted' | 'confirmed' | 'failed' | 'submission_unknown';
     idempotency_key: string;
     provider: string | null;
     provider_transaction_id: string | null;
@@ -41,13 +41,154 @@ interface Settlement {
     events?: SettlementEvent[];
 }
 
-const props = defineProps<{
-    invoices: Invoice[];
-    settlements: Settlement[];
+interface Recipient {
+    id: number;
+    client_id: string;
+    client_name?: string | null;
+    crypto_address: string;
+    network: string;
+    is_active: boolean;
+    created_at: string;
+}
+
+interface WebhookEvent {
+    id: number;
     provider: string;
-    invoiceGateway: string;
-    arcBlockchain: string;
-}>();
+    provider_event_id: string;
+    processing_status: string;
+    attempts: number;
+    last_error?: string | null;
+    payload?: Record<string, any> | null;
+    created_at: string;
+}
+
+interface DomainStats {
+    settlements_count: number;
+    events_count: number;
+    recipients_count: number;
+    webhooks_count: number;
+}
+
+const props = withDefaults(
+    defineProps<{
+        invoices: Invoice[];
+        settlements: Settlement[];
+        recipients?: Recipient[];
+        webhookEvents?: WebhookEvent[];
+        domainStats?: DomainStats;
+        provider: string;
+        invoiceGateway: string;
+        arcBlockchain: string;
+    }>(),
+    {
+        recipients: () => [],
+        webhookEvents: () => [],
+        domainStats: () => ({
+            settlements_count: 0,
+            events_count: 0,
+            recipients_count: 0,
+            webhooks_count: 0,
+        }),
+    },
+);
+
+const activeTab = ref<'gateway' | 'recipients' | 'webhooks'>('gateway');
+
+const showRegisterModal = ref(false);
+const isSubmittingRecipient = ref(false);
+const recipientActionError = ref<string | null>(null);
+const registerForm = ref({
+    client_id: '',
+    client_name: '',
+    crypto_address: '',
+    network: 'ARC-TESTNET',
+});
+
+function openRegisterModal(prefill?: { clientId?: string; clientName?: string; address?: string }) {
+    recipientActionError.value = null;
+    registerForm.value = {
+        client_id: prefill?.clientId || '',
+        client_name: prefill?.clientName || prefill?.clientId || '',
+        crypto_address: prefill?.address || '',
+        network: 'ARC-TESTNET',
+    };
+    showRegisterModal.value = true;
+}
+
+function getRecipientRecord(clientIdentifier?: string, address?: string): Recipient | undefined {
+    if (!props.recipients || props.recipients.length === 0) return undefined;
+    return props.recipients.find(
+        (r) =>
+            (clientIdentifier &&
+                (r.client_id.toLowerCase() === clientIdentifier.toLowerCase() ||
+                    (r.client_name && r.client_name.toLowerCase() === clientIdentifier.toLowerCase()))) ||
+            (address && r.crypto_address.toLowerCase() === address.toLowerCase()),
+    );
+}
+
+function isClientWhitelisted(clientIdentifier?: string, address?: string): boolean {
+    const record = getRecipientRecord(clientIdentifier, address);
+    return Boolean(record && record.is_active);
+}
+
+async function submitRegisterRecipient() {
+    isSubmittingRecipient.value = true;
+    recipientActionError.value = null;
+
+    try {
+        const res = await fetch('/api/recipients', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+            body: JSON.stringify(registerForm.value),
+        });
+
+        const json = await res.json();
+        if (!res.ok) {
+            throw new Error(json.message || 'Failed to register recipient.');
+        }
+
+        addLog(`Payee [${json.recipient.client_id}] registered successfully to whitelist!`, 'success');
+        showRegisterModal.value = false;
+        router.reload();
+    } catch (err: any) {
+        recipientActionError.value = err.message;
+        addLog(`Failed to register recipient: ${err.message}`, 'error');
+    } finally {
+        isSubmittingRecipient.value = false;
+    }
+}
+
+async function toggleRecipient(recipient: Recipient) {
+    try {
+        const res = await fetch(`/api/recipients/${recipient.id}/toggle`, {
+            method: 'PATCH',
+            headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) throw new Error('Failed to toggle status');
+        addLog(`Payee [${recipient.client_id}] status toggled.`, 'info');
+        router.reload();
+    } catch (err: any) {
+        addLog(`Failed to toggle recipient: ${err.message}`, 'error');
+    }
+}
+
+async function deleteRecipient(recipient: Recipient) {
+    if (!confirm(`Remove payee [${recipient.client_id}] from approved whitelist?`)) return;
+    try {
+        const res = await fetch(`/api/recipients/${recipient.id}`, {
+            method: 'DELETE',
+            headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) throw new Error('Failed to delete recipient');
+        addLog(`Payee [${recipient.client_id}] removed from whitelist.`, 'warn');
+        router.reload();
+    } catch (err: any) {
+        addLog(`Failed to delete recipient: ${err.message}`, 'error');
+    }
+}
 
 const selectedInvoiceId = ref(props.invoices[0]?.id || 'INV-001');
 const activeInvoice = computed(() => {
@@ -96,6 +237,15 @@ function addLog(
     }
 }
 
+function isStuck(settlement: Settlement | null): boolean {
+    if (!settlement) return false;
+    if (!['submitted', 'submission_unknown'].includes(settlement.status)) return false;
+    const refTime = settlement.submitted_at || settlement.created_at;
+    if (!refTime) return false;
+    const diffMs = Date.now() - new Date(refTime).getTime();
+    return diffMs > 5 * 60 * 1000;
+}
+
 async function settleSingle() {
     if (!activeInvoice.value) return;
     isProcessing.value = true;
@@ -131,8 +281,13 @@ async function settleSingle() {
                 `ℹ Duplicate request recognized! Existing settlement #${data.id} returned safely. No duplicate transfer occurred.`,
                 'warn',
             );
+        } else if (response.status === 409) {
+            addLog(
+                `🛡️ Bridge Safety Guard: ${data.message || 'Settlement rejected.'}`,
+                'warn',
+            );
         } else {
-            addLog(`Notice: ${JSON.stringify(data)}`, 'info');
+            addLog(`Notice: ${data.message || JSON.stringify(data)}`, 'info');
         }
         router.reload();
     } catch (err: any) {
@@ -352,9 +507,134 @@ async function resetDemoData() {
         </div>
 
         <main class="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-            <!-- Concurrency Spam Benchmark Banner if triggered -->
-            <div
-                v-if="lastSpamStats"
+            <!-- Record Counts & Domain Observability KPI Cards -->
+            <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                <div
+                    @click="activeTab = 'gateway'"
+                    class="group cursor-pointer rounded-2xl border border-slate-800/90 bg-[#0d121f] p-4 shadow-lg transition hover:border-indigo-500/50 hover:bg-slate-900/40"
+                >
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Settlements Domain</span>
+                        <span class="rounded-lg bg-indigo-500/10 p-1.5 text-base text-indigo-400">💳</span>
+                    </div>
+                    <div class="mt-2 text-2xl font-black tracking-tight text-white group-hover:text-indigo-300">
+                        {{ props.domainStats?.settlements_count ?? 0 }}
+                    </div>
+                    <p class="mt-1 text-[11px] text-slate-500">AC1.1–AC1.3 Idempotent States</p>
+                </div>
+
+                <div
+                    @click="activeTab = 'gateway'"
+                    class="group cursor-pointer rounded-2xl border border-slate-800/90 bg-[#0d121f] p-4 shadow-lg transition hover:border-purple-500/50 hover:bg-slate-900/40"
+                >
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Audit Events Domain</span>
+                        <span class="rounded-lg bg-purple-500/10 p-1.5 text-base text-purple-400">🛡️</span>
+                    </div>
+                    <div class="mt-2 text-2xl font-black tracking-tight text-white group-hover:text-purple-300">
+                        {{ props.domainStats?.events_count ?? 0 }}
+                    </div>
+                    <p class="mt-1 text-[11px] text-slate-500">Append-Only Event Ledger</p>
+                </div>
+
+                <div
+                    @click="activeTab = 'recipients'"
+                    class="group cursor-pointer rounded-2xl border border-slate-800/90 bg-[#0d121f] p-4 shadow-lg transition hover:border-emerald-500/50 hover:bg-slate-900/40"
+                >
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Approved Payees Domain</span>
+                        <span class="rounded-lg bg-emerald-500/10 p-1.5 text-base text-emerald-400">👥</span>
+                    </div>
+                    <div class="mt-2 text-2xl font-black tracking-tight text-white group-hover:text-emerald-300">
+                        {{ props.domainStats?.recipients_count ?? 0 }}
+                    </div>
+                    <p class="mt-1 text-[11px] text-slate-500">AC1.4 Whitelist Registry</p>
+                </div>
+
+                <div
+                    @click="activeTab = 'webhooks'"
+                    class="group cursor-pointer rounded-2xl border border-slate-800/90 bg-[#0d121f] p-4 shadow-lg transition hover:border-cyan-500/50 hover:bg-slate-900/40"
+                >
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Webhooks Ingest Domain</span>
+                        <span class="rounded-lg bg-cyan-500/10 p-1.5 text-base text-cyan-400">📡</span>
+                    </div>
+                    <div class="mt-2 text-2xl font-black tracking-tight text-white group-hover:text-cyan-300">
+                        {{ props.domainStats?.webhooks_count ?? 0 }}
+                    </div>
+                    <p class="mt-1 text-[11px] text-slate-500">AC2.3 Replay Safe Ingest</p>
+                </div>
+            </div>
+
+            <!-- Tab Navigation Bar -->
+            <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
+                <div class="flex items-center gap-2">
+                    <button
+                        @click="activeTab = 'gateway'"
+                        :class="[
+                            'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition',
+                            activeTab === 'gateway'
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
+                        ]"
+                    >
+                        <span>⚡</span>
+                        <span>Settlement Gateway & Invoices</span>
+                    </button>
+
+                    <button
+                        @click="activeTab = 'recipients'"
+                        :class="[
+                            'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition',
+                            activeTab === 'recipients'
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
+                        ]"
+                    >
+                        <span>👥</span>
+                        <span>Approved Payees Whitelist (AC1.4)</span>
+                        <span
+                            class="rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-mono text-indigo-300"
+                        >
+                            {{ props.domainStats?.recipients_count ?? props.recipients?.length ?? 0 }}
+                        </span>
+                    </button>
+
+                    <button
+                        @click="activeTab = 'webhooks'"
+                        :class="[
+                            'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition',
+                            activeTab === 'webhooks'
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
+                        ]"
+                    >
+                        <span>📡</span>
+                        <span>Provider Webhooks Ingest</span>
+                        <span
+                            class="rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-mono text-indigo-300"
+                        >
+                            {{ props.domainStats?.webhooks_count ?? props.webhookEvents?.length ?? 0 }}
+                        </span>
+                    </button>
+                </div>
+
+                <div v-if="activeTab === 'recipients'">
+                    <button
+                        @click="openRegisterModal()"
+                        class="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-600/20 transition hover:brightness-110"
+                    >
+                        <span>+</span>
+                        <span>Register New Payee</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- TAB 1: Settlement Gateway & Live Actions -->
+            <div v-if="activeTab === 'gateway'" class="space-y-8">
+                <!-- Concurrency Spam Benchmark Banner if triggered -->
+                <div
+                    v-if="lastSpamStats"
                 class="animate-in fade-in slide-in-from-top-4 flex flex-col items-center justify-between gap-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 duration-300 sm:flex-row sm:p-5"
             >
                 <div class="flex items-center gap-3.5">
@@ -514,6 +794,132 @@ async function resetDemoData() {
                             </div>
                         </div>
 
+                        <!-- AC1.4 Payee Whitelist Status -->
+                        <div
+                            class="mb-6 flex items-center justify-between rounded-xl border p-3 text-xs"
+                            :class="[
+                                isClientWhitelisted(
+                                    activeInvoice.client || activeInvoice.id,
+                                    activeInvoice.recipient,
+                                )
+                                    ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
+                                    : getRecipientRecord(
+                                            activeInvoice.client ||
+                                                activeInvoice.id,
+                                            activeInvoice.recipient,
+                                        )
+                                      ? 'border-amber-500/40 bg-amber-950/30 text-amber-300'
+                                      : 'border-slate-800 bg-slate-900/60 text-slate-300',
+                            ]"
+                        >
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-base">
+                                    {{
+                                        isClientWhitelisted(
+                                            activeInvoice.client ||
+                                                activeInvoice.id,
+                                            activeInvoice.recipient,
+                                        )
+                                            ? '✅'
+                                            : getRecipientRecord(
+                                                    activeInvoice.client ||
+                                                        activeInvoice.id,
+                                                    activeInvoice.recipient,
+                                                )
+                                              ? '⚠️'
+                                              : '🛡️'
+                                    }}
+                                </span>
+                                <div>
+                                    <div class="font-bold">
+                                        {{
+                                            isClientWhitelisted(
+                                                activeInvoice.client ||
+                                                    activeInvoice.id,
+                                                activeInvoice.recipient,
+                                            )
+                                                ? 'AC1.4 Payee Whitelisted & Active'
+                                                : getRecipientRecord(
+                                                        activeInvoice.client ||
+                                                            activeInvoice.id,
+                                                        activeInvoice.recipient,
+                                                    )
+                                                  ? 'Payee Inactive (User Error Protection)'
+                                                  : 'Unregistered Payee'
+                                        }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-400">
+                                        {{
+                                            isClientWhitelisted(
+                                                activeInvoice.client ||
+                                                    activeInvoice.id,
+                                                activeInvoice.recipient,
+                                            )
+                                                ? 'Client and wallet address verified in approved payee registry.'
+                                                : getRecipientRecord(
+                                                        activeInvoice.client ||
+                                                            activeInvoice.id,
+                                                        activeInvoice.recipient,
+                                                    )
+                                                  ? 'Auto-registered as inactive. Activate this payee before settlement can be executed.'
+                                                  : 'Settlement attempt will auto-register payee as INACTIVE to prevent accidental transfer.'
+                                        }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions for each state -->
+                            <div class="flex items-center gap-2">
+                                <button
+                                    v-if="
+                                        getRecipientRecord(
+                                            activeInvoice.client ||
+                                                activeInvoice.id,
+                                            activeInvoice.recipient,
+                                        ) &&
+                                        !isClientWhitelisted(
+                                            activeInvoice.client ||
+                                                activeInvoice.id,
+                                            activeInvoice.recipient,
+                                        )
+                                    "
+                                    @click="
+                                        toggleRecipient(
+                                            getRecipientRecord(
+                                                activeInvoice.client ||
+                                                    activeInvoice.id,
+                                                activeInvoice.recipient,
+                                            )!,
+                                        )
+                                    "
+                                    class="rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-2.5 py-1 text-[11px] font-bold text-emerald-300 transition hover:bg-emerald-500/30 whitespace-nowrap"
+                                >
+                                    ⚡ Activate Payee
+                                </button>
+                                <button
+                                    v-else-if="
+                                        !getRecipientRecord(
+                                            activeInvoice.client ||
+                                                activeInvoice.id,
+                                            activeInvoice.recipient,
+                                        )
+                                    "
+                                    @click="
+                                        openRegisterModal({
+                                            clientId:
+                                                activeInvoice.client ||
+                                                activeInvoice.id,
+                                            clientName: activeInvoice.client,
+                                            address: activeInvoice.recipient,
+                                        })
+                                    "
+                                    class="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 whitespace-nowrap"
+                                >
+                                    + Whitelist Now
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- Action Buttons -->
                         <div class="space-y-2.5">
                             <button
@@ -660,11 +1066,19 @@ async function resetDemoData() {
                                     class="text-xs font-semibold text-slate-400 uppercase"
                                     >State Machine Lifecycle</span
                                 >
-                                <span
-                                    class="font-mono text-xs font-bold text-indigo-300 uppercase"
-                                >
-                                    Status: {{ activeSettlement.status }}
-                                </span>
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        v-if="isStuck(activeSettlement)"
+                                        class="inline-flex items-center gap-1 animate-pulse rounded-full border border-amber-500/50 bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300"
+                                    >
+                                        ⚠️ STUCK (>5m)
+                                    </span>
+                                    <span
+                                        class="font-mono text-xs font-bold text-indigo-300 uppercase"
+                                    >
+                                        Status: {{ activeSettlement.status }}
+                                    </span>
+                                </div>
                             </div>
 
                             <div
@@ -706,6 +1120,18 @@ async function resetDemoData() {
                                 >
                                     3. CONFIRMED ✓
                                 </div>
+                            </div>
+
+                            <div
+                                v-if="activeSettlement.status === 'submission_unknown'"
+                                class="mt-3 rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 text-xs text-amber-200"
+                            >
+                                <p class="font-bold text-amber-300">⚠️ Ambiguous Submission Outcome (Timeout)</p>
+                                <p class="mt-1 text-slate-300">
+                                    The provider call timed out or had an ambiguous network response. The settlement is held safely in
+                                    <code class="rounded bg-slate-900 px-1 py-0.5 font-mono text-amber-400">SUBMISSION_UNKNOWN</code>
+                                    without creating duplicate transfers.
+                                </p>
                             </div>
                         </div>
 
@@ -828,6 +1254,10 @@ async function resetDemoData() {
                                                 ? 'border-amber-400 bg-amber-400'
                                                 : '',
                                             event.type ===
+                                            'CONFIRMATION_MISMATCH'
+                                                ? 'border-amber-500 bg-amber-500'
+                                                : '',
+                                            event.type ===
                                             'SETTLEMENT_CONFIRMED'
                                                 ? 'border-emerald-400 bg-emerald-400'
                                                 : '',
@@ -861,6 +1291,10 @@ async function resetDemoData() {
                                                     event.type ===
                                                     'DUPLICATE_REQUEST_RECEIVED'
                                                         ? 'bg-amber-500/20 font-extrabold text-amber-300'
+                                                        : '',
+                                                    event.type ===
+                                                    'CONFIRMATION_MISMATCH'
+                                                        ? 'border border-amber-500/40 bg-amber-500/20 font-extrabold text-amber-300'
                                                         : '',
                                                     event.type ===
                                                     'SETTLEMENT_CONFIRMED'
@@ -932,6 +1366,315 @@ async function resetDemoData() {
                     </div>
                 </div>
             </div>
+        </div>
+        <!-- End of TAB 1 -->
+
+            <!-- TAB 2: Approved Payees Whitelist (AC1.4) -->
+            <div v-else-if="activeTab === 'recipients'" class="space-y-6">
+                <div class="rounded-2xl border border-slate-800/90 bg-[#0d121f] p-6 shadow-xl">
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-lg font-bold text-white">Approved Payees Directory</h3>
+                                <span class="rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                    AC1.4 Strict Whitelist
+                                </span>
+                            </div>
+                            <p class="mt-1 text-xs text-slate-400">
+                                Settlement Bridge verifies every invoice against this registry. Invoices with new payees are automatically registered as INACTIVE by default to prevent user error. Review the payee coordinates and click "Activate" to permit settlements.
+                            </p>
+                        </div>
+                        <button
+                            @click="openRegisterModal()"
+                            class="flex items-center gap-1.5 self-start rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-600/20 transition hover:brightness-110 sm:self-auto"
+                        >
+                            <span>+</span>
+                            <span>Register New Payee</span>
+                        </button>
+                    </div>
+
+                    <!-- Payees Table -->
+                    <div class="mt-6 overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                                    <th class="pb-3 pr-4">ID</th>
+                                    <th class="pb-3 pr-4">Client ID</th>
+                                    <th class="pb-3 pr-4">Client Name</th>
+                                    <th class="pb-3 pr-4">Crypto Wallet Address (Arc)</th>
+                                    <th class="pb-3 pr-4">Network</th>
+                                    <th class="pb-3 pr-4">Status</th>
+                                    <th class="pb-3 pr-4">Registered At</th>
+                                    <th class="pb-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                <tr
+                                    v-for="recipient in props.recipients"
+                                    :key="recipient.id"
+                                    class="transition hover:bg-slate-900/50"
+                                >
+                                    <td class="py-3.5 pr-4 font-mono font-medium text-slate-400">
+                                        #{{ recipient.id }}
+                                    </td>
+                                    <td class="py-3.5 pr-4 font-medium text-white">
+                                        {{ recipient.client_id }}
+                                    </td>
+                                    <td class="py-3.5 pr-4 text-slate-300">
+                                        {{ recipient.client_name || '—' }}
+                                    </td>
+                                    <td class="py-3.5 pr-4 font-mono text-indigo-300 select-all break-all">
+                                        {{ recipient.crypto_address }}
+                                    </td>
+                                    <td class="py-3.5 pr-4">
+                                        <span class="rounded border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 font-mono text-[10px] text-indigo-300">
+                                            {{ recipient.network }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3.5 pr-4">
+                                        <span
+                                            :class="[
+                                                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase',
+                                                recipient.is_active
+                                                    ? 'border border-emerald-500/30 bg-emerald-500/15 text-emerald-400'
+                                                    : 'border border-amber-500/30 bg-amber-500/15 text-amber-300',
+                                            ]"
+                                        >
+                                            <span
+                                                class="h-1.5 w-1.5 rounded-full"
+                                                :class="recipient.is_active ? 'bg-emerald-400' : 'bg-amber-400'"
+                                            ></span>
+                                            {{ recipient.is_active ? 'Active' : 'Inactive (Review Needed)' }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3.5 pr-4 font-mono text-[11px] text-slate-400">
+                                        {{ new Date(recipient.created_at).toLocaleString() }}
+                                    </td>
+                                    <td class="py-3.5 text-right space-x-2">
+                                        <button
+                                            @click="toggleRecipient(recipient)"
+                                            :class="[
+                                                'rounded px-2.5 py-1 text-[11px] font-semibold transition',
+                                                recipient.is_active
+                                                    ? 'border border-slate-700 bg-slate-800/80 text-slate-400 hover:bg-slate-700 hover:text-white'
+                                                    : 'border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30',
+                                            ]"
+                                        >
+                                            {{ recipient.is_active ? 'Deactivate' : '⚡ Activate' }}
+                                        </button>
+                                        <button
+                                            @click="deleteRecipient(recipient)"
+                                            class="rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20 transition"
+                                        >
+                                            Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!props.recipients || props.recipients.length === 0">
+                                    <td colspan="8" class="py-12 text-center text-slate-500">
+                                        No approved payees registered yet. Click "Register New Payee" to whitelist clients and enable settlements.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: Provider Webhook Ingest Logs -->
+            <div v-else-if="activeTab === 'webhooks'" class="space-y-6">
+                <div class="rounded-2xl border border-slate-800/90 bg-[#0d121f] p-6 shadow-xl">
+                    <div class="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-lg font-bold text-white">Arc Provider Webhooks Ingest Logs</h3>
+                                <span class="rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-300">
+                                    AC2.3 Invariant Verified
+                                </span>
+                            </div>
+                            <p class="mt-1 text-xs text-slate-400">
+                                Replayed or duplicate webhooks sent to <code>/webhooks/arc</code> are ingested safely without causing double transitions or duplicate ledger writes.
+                            </p>
+                        </div>
+                        <div class="rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 font-mono text-xs text-slate-300">
+                            Total Events: {{ props.domainStats?.webhooks_count ?? props.webhookEvents?.length ?? 0 }}
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                                    <th class="pb-3 pr-4">ID</th>
+                                    <th class="pb-3 pr-4">Provider</th>
+                                    <th class="pb-3 pr-4">Provider Event ID</th>
+                                    <th class="pb-3 pr-4">Status</th>
+                                    <th class="pb-3 pr-4">Attempts</th>
+                                    <th class="pb-3 pr-4">Last Error</th>
+                                    <th class="pb-3 text-right">Received At</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                <tr
+                                    v-for="webhook in props.webhookEvents"
+                                    :key="webhook.id"
+                                    class="transition hover:bg-slate-900/50"
+                                >
+                                    <td class="py-3.5 pr-4 font-mono font-medium text-slate-400">
+                                        #{{ webhook.id }}
+                                    </td>
+                                    <td class="py-3.5 pr-4 font-mono uppercase text-indigo-400 font-semibold">
+                                        {{ webhook.provider }}
+                                    </td>
+                                    <td class="py-3.5 pr-4 font-mono text-slate-300 select-all break-all">
+                                        {{ webhook.provider_event_id }}
+                                    </td>
+                                    <td class="py-3.5 pr-4">
+                                        <span
+                                            :class="[
+                                                'rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase',
+                                                webhook.processing_status === 'processed'
+                                                    ? 'border border-emerald-500/30 bg-emerald-500/15 text-emerald-400'
+                                                    : webhook.processing_status === 'failed'
+                                                        ? 'border border-rose-500/30 bg-rose-500/15 text-rose-400'
+                                                        : 'border border-amber-500/30 bg-amber-500/15 text-amber-400',
+                                            ]"
+                                        >
+                                            {{ webhook.processing_status }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3.5 pr-4 font-mono text-slate-300">
+                                        {{ webhook.attempts }}
+                                    </td>
+                                    <td class="py-3.5 pr-4 text-rose-400 font-mono text-[11px]">
+                                        {{ webhook.last_error || '—' }}
+                                    </td>
+                                    <td class="py-3.5 text-right font-mono text-[11px] text-slate-400">
+                                        {{ new Date(webhook.created_at).toLocaleString() }}
+                                    </td>
+                                </tr>
+                                <tr v-if="!props.webhookEvents || props.webhookEvents.length === 0">
+                                    <td colspan="7" class="py-12 text-center text-slate-500">
+                                        No webhook events recorded yet. Confirmations sent to <code>/webhooks/arc</code> will appear here.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </main>
+
+        <!-- Register Payee Modal Dialog (AC1.4) -->
+        <div
+            v-if="showRegisterModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+        >
+            <div
+                class="w-full max-w-lg rounded-2xl border border-slate-800 bg-[#0d121f] p-6 shadow-2xl space-y-5"
+            >
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400 font-bold">
+                            👥
+                        </div>
+                        <h3 class="text-base font-bold text-white">
+                            Register Approved Payee (AC1.4)
+                        </h3>
+                    </div>
+                    <button
+                        @click="showRegisterModal = false"
+                        class="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <p class="text-xs text-slate-400">
+                    Add client and wallet coordinates to the approved whitelist. Any invoice settlement for this client or wallet will pass the AC1.4 pre-flight safety check.
+                </p>
+
+                <div
+                    v-if="recipientActionError"
+                    class="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-300"
+                >
+                    {{ recipientActionError }}
+                </div>
+
+                <form @submit.prevent="submitRegisterRecipient" class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">
+                            Client ID / Slug / Identifier <span class="text-rose-400">*</span>
+                        </label>
+                        <input
+                            v-model="registerForm.client_id"
+                            required
+                            type="text"
+                            placeholder="e.g. 1, client_1, or Acme Corp"
+                            class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+                        />
+                        <p class="mt-1 text-[10px] text-slate-500">
+                            Matches SolidInvoice client ID, name, or IRI.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">
+                            Client / Organization Name (Optional)
+                        </label>
+                        <input
+                            v-model="registerForm.client_name"
+                            type="text"
+                            placeholder="e.g. Acme Corporation Ltd"
+                            class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">
+                            USDC Recipient Wallet Address <span class="text-rose-400">*</span>
+                        </label>
+                        <input
+                            v-model="registerForm.crypto_address"
+                            required
+                            type="text"
+                            placeholder="0x..."
+                            class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+                        />
+                        <p class="mt-1 text-[10px] text-slate-500">
+                            Must be a valid 42-character hex address starting with 0x.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">
+                            Blockchain Network
+                        </label>
+                        <input
+                            v-model="registerForm.network"
+                            type="text"
+                            class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+                        />
+                    </div>
+
+                    <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                        <button
+                            type="button"
+                            @click="showRegisterModal = false"
+                            class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 font-medium text-slate-300 hover:bg-slate-700 transition"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            :disabled="isSubmittingRecipient"
+                            class="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition"
+                        >
+                            {{ isSubmittingRecipient ? 'Registering...' : 'Save & Whitelist' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 </template>

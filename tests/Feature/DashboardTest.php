@@ -13,6 +13,9 @@ test('dashboard page renders successfully with invoices and settlements props', 
         ->component('SettlementDashboard')
         ->has('invoices', 2)
         ->has('settlements')
+        ->has('recipients')
+        ->has('webhookEvents')
+        ->has('domainStats')
         ->where('provider', 'fake')
         ->where('invoiceGateway', 'fake')
     );
