@@ -12,5 +12,6 @@ final readonly class CreateSettlementCommand
         public string $recipient,
         public string $amount,
         public string $currency,
+        public ?string $clientId = null,
     ) {}
 }

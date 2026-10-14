@@ -42,6 +42,7 @@ final class SettlementController extends Controller
             'recipient' => ['required', 'string', 'max:150'],
             'amount' => ['required', 'numeric', 'gt:0'],
             'currency' => ['required', 'string', 'max:10'],
+            'client_id' => ['nullable', 'string', 'max:255'],
         ]);
 
         $command = new CreateSettlementCommand(
@@ -50,6 +51,7 @@ final class SettlementController extends Controller
             recipient: $validated['recipient'],
             amount: (string) $validated['amount'],
             currency: $validated['currency'],
+            clientId: $validated['client_id'] ?? null,
         );
 
         try {

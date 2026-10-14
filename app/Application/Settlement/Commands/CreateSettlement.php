@@ -10,6 +10,7 @@ use App\Domain\Settlement\DTOs\CreateSettlementCommand;
 use App\Domain\Settlement\Enums\SettlementEventType;
 use App\Domain\Settlement\Enums\SettlementStatus;
 use App\Domain\Settlement\Exceptions\SettlementRequestConflictException;
+use App\Domain\Settlement\Models\Recipient;
 use App\Domain\Settlement\Models\Settlement;
 use App\Domain\Settlement\Models\SettlementEvent;
 use App\Domain\Settlement\Services\IdempotencyKeyGenerator;
@@ -76,6 +77,42 @@ final class CreateSettlement
         }
         if (strtoupper(trim($invoice->currency)) !== strtoupper(trim($command->currency))) {
             throw SettlementRequestConflictException::invoiceMismatch('currency');
+        }
+
+        // The invoice is authoritative when it supplies a client reference.
+        $invoiceClientId = trim((string) ($invoice->client ?? ''));
+        $requestedClientId = trim((string) ($command->clientId ?? ''));
+        if ($invoiceClientId !== '' && $requestedClientId !== '' && strcasecmp($invoiceClientId, $requestedClientId) !== 0) {
+            throw SettlementRequestConflictException::invoiceMismatch('client_id');
+        }
+
+        $clientIdentifier = $invoiceClientId !== '' ? $invoiceClientId : $requestedClientId;
+        if ($clientIdentifier === '') {
+            throw SettlementRequestConflictException::recipientClientRequired();
+        }
+
+        // Strict recipient whitelist verification with safe inactive registration.
+        $recipientRecord = Recipient::findForClient($clientIdentifier);
+
+        if ($recipientRecord === null) {
+            // Not registered yet: automatically register as INACTIVE by default to prevent user error
+            Recipient::create([
+                'client_id' => $clientIdentifier,
+                'client_name' => $invoiceClientId !== '' ? $invoiceClientId : null,
+                'crypto_address' => trim($command->recipient),
+                'network' => 'ARC-TESTNET',
+                'is_active' => false,
+            ]);
+
+            throw SettlementRequestConflictException::recipientAutoRegisteredInactive($clientIdentifier);
+        }
+
+        if (! $recipientRecord->is_active) {
+            throw SettlementRequestConflictException::recipientInactive($clientIdentifier);
+        }
+
+        if (strtolower(trim($recipientRecord->crypto_address)) !== strtolower(trim($command->recipient))) {
+            throw SettlementRequestConflictException::invoiceMismatch('recipient');
         }
 
         /** @var Settlement|null $settlement */

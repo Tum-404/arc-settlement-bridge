@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\ArcWebhookController;
+use App\Http\Controllers\Api\RecipientController;
 use App\Http\Controllers\Api\SettlementController;
 use App\Http\Controllers\Api\SolidInvoiceWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -14,6 +15,13 @@ Route::prefix('settlements')->group(function (): void {
     if (app()->environment('local', 'staging', 'testing')) {
         Route::post('/{settlement}/simulate-confirm', [SettlementController::class, 'simulateConfirm'])->name('api.settlements.simulate-confirm');
     }
+});
+
+Route::prefix('recipients')->group(function (): void {
+    Route::get('/', [RecipientController::class, 'index'])->name('api.recipients.index');
+    Route::post('/', [RecipientController::class, 'store'])->name('api.recipients.store');
+    Route::patch('/{recipient}/toggle', [RecipientController::class, 'toggle'])->name('api.recipients.toggle');
+    Route::delete('/{recipient}', [RecipientController::class, 'destroy'])->name('api.recipients.destroy');
 });
 
 Route::post('/webhooks/arc', [ArcWebhookController::class, 'handle'])->name('api.webhooks.arc');

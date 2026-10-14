@@ -1,0 +1,90 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api;
+
+use App\Domain\Settlement\Models\Recipient;
+use App\Http\Controllers\Controller;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+final class RecipientController extends Controller
+{
+    /**
+     * List all registered recipients.
+     */
+    public function index(): JsonResponse
+    {
+        $recipients = Recipient::query()
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return response()->json([
+            'recipients' => $recipients,
+            'count' => $recipients->count(),
+        ]);
+    }
+
+    /**
+     * Store or update an approved recipient in the whitelist.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'client_id' => ['required', 'string', 'max:255'],
+            'client_name' => ['nullable', 'string', 'max:255'],
+            'crypto_address' => ['required', 'string', 'regex:/^0x[a-fA-F0-9]{40}$/'],
+            'network' => ['nullable', 'string', 'max:50'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $network = strtoupper(trim((string) ($validated['network'] ?? 'ARC-TESTNET')));
+        $isActive = (bool) ($validated['is_active'] ?? true);
+
+        $recipient = Recipient::updateOrCreate(
+            [
+                'client_id' => trim($validated['client_id']),
+                'network' => $network,
+            ],
+            [
+                'client_name' => ! empty($validated['client_name']) ? trim($validated['client_name']) : trim($validated['client_id']),
+                'crypto_address' => trim($validated['crypto_address']),
+                'is_active' => $isActive,
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Recipient registered successfully.',
+            'recipient' => $recipient,
+        ], Response::HTTP_CREATED);
+    }
+
+    /**
+     * Toggle the active status of a recipient.
+     */
+    public function toggle(Recipient $recipient): JsonResponse
+    {
+        $recipient->update([
+            'is_active' => ! $recipient->is_active,
+        ]);
+
+        return response()->json([
+            'message' => 'Recipient status updated.',
+            'recipient' => $recipient->fresh(),
+        ]);
+    }
+
+    /**
+     * Remove a recipient from the whitelist.
+     */
+    public function destroy(Recipient $recipient): JsonResponse
+    {
+        $recipient->delete();
+
+        return response()->json([
+            'message' => 'Recipient removed from whitelist.',
+        ]);
+    }
+}
