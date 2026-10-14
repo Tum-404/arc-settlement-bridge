@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Application\Settlement\Commands;
 
 use App\Domain\Settlement\Contracts\SettlementProvider;
+use App\Domain\Settlement\Enums\SettlementEventType;
 use App\Domain\Settlement\Enums\SettlementStatus;
 use App\Domain\Settlement\Models\Settlement;
+use App\Domain\Settlement\Models\SettlementEvent;
 use App\Domain\Settlement\Services\SettlementStateMachine;
 
 final class RecoverUnknownSettlements
@@ -31,6 +33,18 @@ final class RecoverUnknownSettlements
                 'failure_code' => null,
                 'failure_reason' => null,
             ]);
+
+            SettlementEvent::create([
+                'settlement_id' => $settlement->id,
+                'type' => SettlementEventType::PAYMENT_SUBMITTED,
+                'payload' => [
+                    'recovered' => true,
+                    'provider' => $settlement->provider,
+                    'provider_transaction_id' => $result->providerTransactionId,
+                    'tx_hash' => $result->txHash,
+                ],
+            ]);
+
             $recovered++;
         });
 

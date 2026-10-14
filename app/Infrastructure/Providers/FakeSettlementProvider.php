@@ -17,20 +17,34 @@ final class FakeSettlementProvider implements SettlementProvider
 
     private static ?ProviderSettlementStatus $forcedStatus = null;
 
+    /**
+     * @var array<string, SubmissionResult>
+     */
+    private static array $submissions = [];
+
     public function submit(Settlement $settlement): SubmissionResult
     {
         if (self::$shouldFailSubmission || str_contains($settlement->recipient, 'fail')) {
             throw new RuntimeException('Simulated provider transfer failure: insufficient network funds or rejected.');
         }
 
-        $providerTxId = 'fake-'.Str::uuid()->toString();
-        $txHash = '0x'.hash('sha256', $settlement->idempotency_key.'-'.microtime(true));
+        $key = $settlement->provider_idempotency_key ?? $settlement->idempotency_key;
+        if (isset(self::$submissions[$key])) {
+            return self::$submissions[$key];
+        }
 
-        return new SubmissionResult(
+        $providerTxId = 'fake-'.Str::uuid()->toString();
+        $txHash = '0x'.hash('sha256', $key);
+
+        $result = new SubmissionResult(
             providerTransactionId: $providerTxId,
             txHash: $txHash,
             provider: $this->name(),
         );
+
+        self::$submissions[$key] = $result;
+
+        return $result;
     }
 
     public function status(string $providerTransactionId): ProviderSettlementStatus
@@ -61,5 +75,6 @@ final class FakeSettlementProvider implements SettlementProvider
     {
         self::$shouldFailSubmission = false;
         self::$forcedStatus = null;
+        self::$submissions = [];
     }
 }

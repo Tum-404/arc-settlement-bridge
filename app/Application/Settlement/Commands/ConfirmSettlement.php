@@ -43,69 +43,86 @@ final class ConfirmSettlement
             }
         }
 
-        $settlement = DB::transaction(function () use ($providerTransactionId, $evidence): Settlement {
-            /** @var Settlement|null $settlement */
-            $settlement = Settlement::query()->lockForUpdate()
-                ->where('provider_transaction_id', $providerTransactionId)
-                ->first();
-            if ($settlement === null) {
-                throw SettlementVerificationException::notFound($providerTransactionId);
+        try {
+            $settlement = DB::transaction(function () use ($providerTransactionId, $evidence): Settlement {
+                /** @var Settlement|null $settlement */
+                $settlement = Settlement::query()->lockForUpdate()
+                    ->where('provider_transaction_id', $providerTransactionId)
+                    ->first();
+                if ($settlement === null) {
+                    throw SettlementVerificationException::notFound($providerTransactionId);
+                }
+                if ($settlement->isConfirmed()) {
+                    return $settlement;
+                }
+
+                $expected = strtolower(trim($settlement->recipient));
+                $actual = strtolower(trim($evidence['recipient']));
+                if ($expected !== $actual) {
+                    throw SettlementVerificationException::mismatch('recipient', $expected, $actual);
+                }
+
+                $expected = $this->idempotencyKeyGenerator->normalizeAmount($settlement->amount);
+                $actual = $this->idempotencyKeyGenerator->normalizeAmount($evidence['amount']);
+                if (bccomp($expected, $actual, 6) !== 0) {
+                    throw SettlementVerificationException::mismatch('amount', $expected, $actual);
+                }
+
+                $expected = strtoupper(trim($settlement->currency));
+                $actual = strtoupper(trim($evidence['currency']));
+                if ($expected !== $actual) {
+                    throw SettlementVerificationException::mismatch('currency', $expected, $actual);
+                }
+
+                $this->stateMachine->assertCanTransition(
+                    from: $settlement->status,
+                    to: SettlementStatus::CONFIRMED,
+                );
+
+                $updates = [
+                    'status' => SettlementStatus::CONFIRMED,
+                    'confirmed_at' => now(),
+                ];
+
+                $updates['tx_hash'] = $evidence['tx_hash'];
+
+                $settlement->update($updates);
+
+                SettlementEvent::create([
+                    'settlement_id' => $settlement->id,
+                    'type' => SettlementEventType::SETTLEMENT_CONFIRMED,
+                    'payload' => [
+                        'provider_transaction_id' => $settlement->provider_transaction_id,
+                        'tx_hash' => $settlement->tx_hash,
+                        'confirmed_at' => $settlement->confirmed_at?->toIso8601String(),
+                    ],
+                ]);
+
+                $settlement->update(['reconciliation_status' => 'pending']);
+                SettlementEvent::create([
+                    'settlement_id' => $settlement->id,
+                    'type' => SettlementEventType::RECONCILIATION_QUEUED,
+                    'payload' => ['provider_transaction_id' => $settlement->provider_transaction_id],
+                ]);
+
+                return $settlement->fresh();
+            });
+        } catch (SettlementVerificationException $e) {
+            $settlement = Settlement::where('provider_transaction_id', $providerTransactionId)->first();
+            if ($settlement !== null) {
+                SettlementEvent::create([
+                    'settlement_id' => $settlement->id,
+                    'type' => SettlementEventType::CONFIRMATION_MISMATCH,
+                    'payload' => [
+                        'provider_transaction_id' => $providerTransactionId,
+                        'error' => $e->getMessage(),
+                        'evidence' => $evidence,
+                    ],
+                ]);
             }
-            if ($settlement->isConfirmed()) {
-                return $settlement;
-            }
 
-            $expected = strtolower(trim($settlement->recipient));
-            $actual = strtolower(trim($evidence['recipient']));
-            if ($expected !== $actual) {
-                throw SettlementVerificationException::mismatch('recipient', $expected, $actual);
-            }
-
-            $expected = $this->idempotencyKeyGenerator->normalizeAmount($settlement->amount);
-            $actual = $this->idempotencyKeyGenerator->normalizeAmount($evidence['amount']);
-            if (bccomp($expected, $actual, 6) !== 0) {
-                throw SettlementVerificationException::mismatch('amount', $expected, $actual);
-            }
-
-            $expected = strtoupper(trim($settlement->currency));
-            $actual = strtoupper(trim($evidence['currency']));
-            if ($expected !== $actual) {
-                throw SettlementVerificationException::mismatch('currency', $expected, $actual);
-            }
-
-            $this->stateMachine->assertCanTransition(
-                from: $settlement->status,
-                to: SettlementStatus::CONFIRMED,
-            );
-
-            $updates = [
-                'status' => SettlementStatus::CONFIRMED,
-                'confirmed_at' => now(),
-            ];
-
-            $updates['tx_hash'] = $evidence['tx_hash'];
-
-            $settlement->update($updates);
-
-            SettlementEvent::create([
-                'settlement_id' => $settlement->id,
-                'type' => SettlementEventType::SETTLEMENT_CONFIRMED,
-                'payload' => [
-                    'provider_transaction_id' => $settlement->provider_transaction_id,
-                    'tx_hash' => $settlement->tx_hash,
-                    'confirmed_at' => $settlement->confirmed_at?->toIso8601String(),
-                ],
-            ]);
-
-            $settlement->update(['reconciliation_status' => 'pending']);
-            SettlementEvent::create([
-                'settlement_id' => $settlement->id,
-                'type' => SettlementEventType::RECONCILIATION_QUEUED,
-                'payload' => ['provider_transaction_id' => $settlement->provider_transaction_id],
-            ]);
-
-            return $settlement->fresh();
-        });
+            throw $e;
+        }
 
         if ($settlement->isConfirmed() && $settlement->reconciliation_status !== 'succeeded') {
             $this->reconcileSettlement->execute($settlement);

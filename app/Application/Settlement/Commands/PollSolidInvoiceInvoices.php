@@ -56,6 +56,7 @@ final class PollSolidInvoiceInvoices
                     source: 'solidinvoice', invoiceId: $invoice->id, recipient: $invoice->recipient,
                     amount: $invoice->amount, currency: $invoice->currency,
                 ));
+
                 $created['is_duplicate'] ? $result['skipped']++ : $result['submitted']++;
             } catch (Throwable $e) {
                 $result['failed']++;
