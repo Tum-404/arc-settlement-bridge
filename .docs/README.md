@@ -9,6 +9,7 @@ This directory contains the project’s internal planning, implementation, and o
 ## Guides
 
 - [Local launch guide](guides/local-launch-guide.md) — one-command Docker stack, native host setup, simulator commands, and operational troubleshooting.
+- [Windows demo install guide (Thai)](guides/demo-install-windows-th.md) — step-by-step Docker, operator authentication, fake-demo, SolidInvoice, Arc, and ngrok walkthrough for recording the submission video.
 - [Thai roadmap guide](guides/roadmap-th.md) — current progress and a dependency-ordered completion guide in Thai.
 - [Implementation walkthrough](guides/implementation-walkthrough.md) — implemented components and validation evidence.
 
