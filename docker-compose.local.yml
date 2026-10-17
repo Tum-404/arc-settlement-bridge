@@ -28,6 +28,7 @@ services:
     # 1. Settlement Bridge (Laravel Web Application & API)
     # ---------------------------------------------------------------------------
     bridge:
+        container_name: settlement-bridge
         build:
             context: .
             dockerfile: docker/Dockerfile
@@ -106,6 +107,8 @@ services:
             - ./storage/logs:/var/www/html/storage/logs
             # Cache & session directory persistence
             - bridge_storage_data:/var/www/html/storage/framework
+        networks:
+            - settlement_bridge_local
         healthcheck:
             test:
                 [
@@ -120,12 +123,13 @@ services:
             db:
                 condition: service_healthy
             solidinvoice:
-                condition: service_started
+                condition: service_healthy
 
     # ---------------------------------------------------------------------------
     # 2. Queue Worker (Background Asynchronous Execution)
     # ---------------------------------------------------------------------------
     queue:
+        container_name: settlement-bridge-queue
         build:
             context: .
             dockerfile: docker/Dockerfile
@@ -146,6 +150,8 @@ services:
             - ./routes:/var/www/html/routes
             - ./storage/logs:/var/www/html/storage/logs
             - bridge_storage_data:/var/www/html/storage/framework
+        networks:
+            - settlement_bridge_local
         depends_on:
             bridge:
                 condition: service_healthy
@@ -156,6 +162,7 @@ services:
     # 3. SolidInvoice Poller (Automatic Ingestion Daemon)
     # ---------------------------------------------------------------------------
     poller:
+        container_name: settlement-bridge-poller
         build:
             context: .
             dockerfile: docker/Dockerfile
@@ -184,12 +191,15 @@ services:
             db:
                 condition: service_healthy
             solidinvoice:
-                condition: service_started
+                condition: service_healthy
+        networks:
+            - settlement_bridge_local
 
     # ---------------------------------------------------------------------------
     # 4. PostgreSQL 17 (Shared Local Database)
     # ---------------------------------------------------------------------------
     db:
+        container_name: settlement-bridge-db
         image: postgres:17-alpine
         restart: unless-stopped
         environment:
@@ -213,11 +223,14 @@ services:
             interval: 5s
             timeout: 5s
             retries: 10
+        networks:
+            - settlement_bridge_local
 
     # ---------------------------------------------------------------------------
     # 5. SolidInvoice (Invoicing & Accounting ERP)
     # ---------------------------------------------------------------------------
     solidinvoice:
+        container_name: settlement-bridge-solidinvoice
         image: solidinvoice/solidinvoice:3.0.1
         restart: unless-stopped
         environment:
@@ -234,6 +247,14 @@ services:
         depends_on:
             db:
                 condition: service_healthy
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8765 || exit 1']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 20s
+        networks:
+            - settlement_bridge_local
 
 # =============================================================================
 # Explicit Named Volumes: Persist data across `docker compose down`
@@ -245,3 +266,7 @@ volumes:
         name: arc_solidinvoice_data
     bridge_storage_data:
         name: arc_bridge_storage_data
+
+networks:
+    settlement_bridge_local:
+        name: settlement-bridge-local
