@@ -95,6 +95,11 @@ final class CreateSettlement
         $recipientRecord = Recipient::findForClient($clientIdentifier);
 
         if ($recipientRecord === null) {
+            $walletOwner = Recipient::findByCryptoAddress($command->recipient);
+            if ($walletOwner !== null) {
+                throw SettlementRequestConflictException::walletAlreadyAssigned($command->recipient, $walletOwner->client_id);
+            }
+
             // Not registered yet: automatically register as INACTIVE by default to prevent user error
             Recipient::create([
                 'client_id' => $clientIdentifier,

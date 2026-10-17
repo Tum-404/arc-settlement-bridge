@@ -33,6 +33,11 @@ final class SettlementRequestConflictException extends RuntimeException
         return new self("Client [{$client}] was not registered in the recipients table. It has now been automatically added as INACTIVE to prevent user error. Please review and activate it on the dashboard before settling.");
     }
 
+    public static function walletAlreadyAssigned(string $walletAddress, string $client): self
+    {
+        return new self("Wallet address [{$walletAddress}] is already assigned to client [{$client}]. Settlement rejected.");
+    }
+
     public static function recipientInactive(string $client): self
     {
         return new self("Client [{$client}] is currently INACTIVE in the Approved Payees Directory. Please activate it on the dashboard before settling.");

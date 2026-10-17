@@ -120,7 +120,7 @@ test('concurrent duplicate requests submit to provider only once', function (): 
     $command = new CreateSettlementCommand(
         source: 'solidinvoice',
         invoiceId: 'INV-RACE-01',
-        recipient: '0x71C836643F37D110e49952042125585097486eF8',
+        recipient: '0x4444444444444444444444444444444444444444',
         amount: '100.000000',
         currency: 'USDC',
     );

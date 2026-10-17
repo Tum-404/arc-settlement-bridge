@@ -32,7 +32,7 @@ try {
             ['client_id' => 'Default Client', 'network' => 'ARC-TESTNET'],
             [
                 'client_name' => 'Default Client',
-                'crypto_address' => '0x71C836643F37D110e49952042125585097486eF8',
+                'crypto_address' => '0x4444444444444444444444444444444444444444',
                 'is_active' => true,
             ],
         );
@@ -54,7 +54,7 @@ try {
         app(CreateSettlement::class)->execute(new CreateSettlementCommand(
             source: 'solidinvoice',
             invoiceId: $invoiceId,
-            recipient: '0x71C836643F37D110e49952042125585097486eF8',
+            recipient: '0x4444444444444444444444444444444444444444',
             amount: '100.000000',
             currency: 'USDC',
         ));

@@ -8,6 +8,7 @@ use App\Domain\Settlement\Models\Recipient;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 final class RecipientController extends Controller
@@ -42,15 +43,24 @@ final class RecipientController extends Controller
 
         $network = strtoupper(trim((string) ($validated['network'] ?? 'ARC-TESTNET')));
         $isActive = (bool) ($validated['is_active'] ?? true);
+        $clientId = trim($validated['client_id']);
+        $cryptoAddress = trim($validated['crypto_address']);
+
+        $walletOwner = Recipient::findByCryptoAddress($cryptoAddress);
+        if ($walletOwner !== null && $walletOwner->client_id !== $clientId) {
+            throw ValidationException::withMessages([
+                'crypto_address' => ['This crypto wallet address is already assigned to another client.'],
+            ]);
+        }
 
         $recipient = Recipient::updateOrCreate(
             [
-                'client_id' => trim($validated['client_id']),
+                'client_id' => $clientId,
                 'network' => $network,
             ],
             [
-                'client_name' => ! empty($validated['client_name']) ? trim($validated['client_name']) : trim($validated['client_id']),
-                'crypto_address' => trim($validated['crypto_address']),
+                'client_name' => ! empty($validated['client_name']) ? trim($validated['client_name']) : $clientId,
+                'crypto_address' => $cryptoAddress,
                 'is_active' => $isActive,
             ]
         );
@@ -59,6 +69,20 @@ final class RecipientController extends Controller
             'message' => 'Recipient registered successfully.',
             'recipient' => $recipient,
         ], Response::HTTP_CREATED);
+    }
+
+    /**
+     * Identify the registered recipient that owns a wallet address.
+     */
+    public function showByWallet(string $cryptoAddress): JsonResponse
+    {
+        $recipient = Recipient::findByCryptoAddress($cryptoAddress);
+
+        if ($recipient === null) {
+            return response()->json(['message' => 'No recipient is registered for this crypto wallet address.'], Response::HTTP_NOT_FOUND);
+        }
+
+        return response()->json(['recipient' => $recipient]);
     }
 
     /**

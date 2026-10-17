@@ -19,6 +19,7 @@ Route::prefix('settlements')->group(function (): void {
 
 Route::prefix('recipients')->group(function (): void {
     Route::get('/', [RecipientController::class, 'index'])->name('api.recipients.index');
+    Route::get('/by-wallet/{cryptoAddress}', [RecipientController::class, 'showByWallet'])->name('api.recipients.show-by-wallet');
     Route::post('/', [RecipientController::class, 'store'])->name('api.recipients.store');
     Route::patch('/{recipient}/toggle', [RecipientController::class, 'toggle'])->name('api.recipients.toggle');
     Route::delete('/{recipient}', [RecipientController::class, 'destroy'])->name('api.recipients.destroy');

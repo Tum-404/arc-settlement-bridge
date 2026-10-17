@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
  * @property string $client_id
  * @property string|null $client_name
  * @property string $crypto_address
+ * @property string $crypto_address_normalized
  * @property string $network
  * @property bool $is_active
  * @property Carbon|null $created_at
@@ -22,6 +23,13 @@ use Illuminate\Support\Carbon;
  */
 final class Recipient extends Model
 {
+    protected static function booted(): void
+    {
+        self::saving(function (self $recipient): void {
+            $recipient->crypto_address_normalized = strtolower(trim($recipient->crypto_address));
+        });
+    }
+
     /**
      * @var list<string>
      */
@@ -83,6 +91,16 @@ final class Recipient extends Model
                 $query->where('network', strtoupper(trim($network)))
                     ->orWhere('network', strtolower(trim($network)));
             })
+            ->first();
+    }
+
+    /**
+     * Resolve the sole recipient identity for a wallet address.
+     */
+    public static function findByCryptoAddress(string $cryptoAddress): ?self
+    {
+        return self::query()
+            ->where('crypto_address_normalized', strtolower(trim($cryptoAddress)))
             ->first();
     }
 }

@@ -49,6 +49,27 @@ test('rejects registration with invalid crypto address', function (): void {
         ->assertJsonValidationErrors(['crypto_address']);
 });
 
+test('rejects assigning the same wallet to different clients regardless of address casing', function (): void {
+    $this->postJson('/api/recipients', [
+        'client_id' => 'wallet-owner-a',
+        'crypto_address' => '0xAbCd000000000000000000000000000000000001',
+    ])->assertCreated();
+
+    $this->postJson('/api/recipients', [
+        'client_id' => 'wallet-owner-b',
+        'crypto_address' => '0xabcd000000000000000000000000000000000001',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['crypto_address']);
+});
+
+test('can identify a recipient by wallet address regardless of address casing', function (): void {
+    $response = $this->getJson('/api/recipients/by-wallet/0x71c836643f37d110e49952042125585097486ef8');
+
+    $response->assertOk()
+        ->assertJsonPath('recipient.client_id', 'Acme Corporation');
+});
+
 test('can toggle recipient active status', function (): void {
     $recipient = Recipient::create([
         'client_id' => 'toggle_client',

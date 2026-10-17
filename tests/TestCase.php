@@ -44,7 +44,7 @@ abstract class TestCase extends BaseTestCase
                 ['client_id' => 'Default Client', 'network' => 'ARC-TESTNET'],
                 [
                     'client_name' => 'Default Client',
-                    'crypto_address' => '0x71C836643F37D110e49952042125585097486eF8',
+                    'crypto_address' => '0x4444444444444444444444444444444444444444',
                     'is_active' => true,
                 ]
             );
