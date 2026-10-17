@@ -49,6 +49,7 @@ Artisan::command('settlements:circle-check', function (CircleClient $circle): in
     $this->line('Testing Circle API connectivity...');
 
     try {
+        $circle->assertCredentialsConfigured();
         $pubKey = $circle->getPublicKey();
         $this->info('✔ Successfully fetched Circle public key from API.');
     } catch (Throwable $e) {
@@ -60,9 +61,7 @@ Artisan::command('settlements:circle-check', function (CircleClient $circle): in
     if (! empty($entitySecret)) {
         try {
             $ciphertext = $circle->generateEntitySecretCiphertext();
-            if ($ciphertext !== null) {
-                $this->info('✔ Successfully generated entitySecretCiphertext via RSA-OAEP SHA-256.');
-            }
+            $this->info('✔ Successfully generated entitySecretCiphertext via RSA-OAEP SHA-256.');
         } catch (Throwable $e) {
             $this->error('✖ Failed to encrypt entity secret: '.$e->getMessage());
 

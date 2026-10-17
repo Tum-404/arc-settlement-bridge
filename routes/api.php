@@ -6,15 +6,16 @@ use App\Http\Controllers\Api\ArcWebhookController;
 use App\Http\Controllers\Api\RecipientController;
 use App\Http\Controllers\Api\SettlementController;
 use App\Http\Controllers\Api\SolidInvoiceWebhookController;
+use App\Http\Middleware\EnsureDemoMode;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('settlements')->group(function (): void {
     Route::get('/', [SettlementController::class, 'index'])->name('api.settlements.index');
     Route::post('/', [SettlementController::class, 'store'])->name('api.settlements.store');
     Route::get('/{settlement}', [SettlementController::class, 'show'])->name('api.settlements.show');
-    if (app()->environment('local', 'staging', 'testing')) {
-        Route::post('/{settlement}/simulate-confirm', [SettlementController::class, 'simulateConfirm'])->name('api.settlements.simulate-confirm');
-    }
+    Route::middleware(EnsureDemoMode::class)
+        ->post('/{settlement}/simulate-confirm', [SettlementController::class, 'simulateConfirm'])
+        ->name('api.settlements.simulate-confirm');
 });
 
 Route::prefix('recipients')->group(function (): void {

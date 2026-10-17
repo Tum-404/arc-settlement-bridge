@@ -18,6 +18,7 @@ abstract class TestCase extends BaseTestCase
         config()->set('settlement.arc.allow_unsigned_webhooks', true);
         config()->set('settlement.provider', 'fake');
         config()->set('settlement.invoice_gateway', 'fake');
+        config()->set('settlement.demo_mode', true);
         $this->app->forgetInstance(SettlementProvider::class);
         $this->app->forgetInstance(InvoiceGateway::class);
         FakeSettlementProvider::reset();

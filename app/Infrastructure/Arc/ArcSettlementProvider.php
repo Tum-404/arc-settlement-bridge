@@ -20,6 +20,15 @@ final class ArcSettlementProvider implements SettlementProvider
 
     public function submit(Settlement $settlement): SubmissionResult
     {
+        $this->circle->assertCredentialsConfigured();
+
+        if (trim($this->walletId) === '') {
+            throw new \RuntimeException('ARC_WALLET_ID must be configured before submitting an Arc transfer.');
+        }
+        if (empty($this->tokenAddress) && empty($this->tokenId)) {
+            throw new \RuntimeException('Configure ARC_USDC_CONTRACT_ADDRESS or ARC_TOKEN_ID before submitting an Arc transfer.');
+        }
+
         $result = $this->circle->transferUsdc(
             walletId: $this->walletId,
             recipientAddress: $settlement->recipient,

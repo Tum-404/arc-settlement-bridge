@@ -23,6 +23,10 @@ return [
     */
     'invoice_gateway' => env('INVOICE_GATEWAY', 'fake'),
 
+    // Demo-only routes such as simulated confirmation and data reset are
+    // unavailable unless this explicit opt-in is enabled.
+    'demo_mode' => env('SETTLEMENT_DEMO_MODE', false),
+
     /*
     |--------------------------------------------------------------------------
     | Circle / Arc Testnet Settings

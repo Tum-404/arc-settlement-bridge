@@ -253,8 +253,9 @@ Symfony subscriber, plugin, or database access in SolidInvoice.
 | `POST` | `/api/webhooks/arc`                      | Webhook endpoint for Circle / Arc Testnet notifications                                          |
 | `POST` | `/demo/reset`                            | Reset demo state for interactive presentations                                                   |
 
-`simulate-confirm` and `demo/reset` are demo-only endpoints. They must not be
-registered in a public production deployment.
+`simulate-confirm` and `demo/reset` are demo-only endpoints. They return `404`
+unless `SETTLEMENT_DEMO_MODE=true` is explicitly configured; keep that value
+false in every non-demo deployment.
 
 For the automatic SolidInvoice-to-Bridge trigger contract, including HMAC
 signing and retry behavior, see [docs/solidinvoice-trigger.md](docs/solidinvoice-trigger.md).
@@ -271,6 +272,9 @@ SETTLEMENT_PROVIDER=fake
 
 # Invoicing Gateway ("fake" for local mock, "solidinvoice" for live SolidInvoice)
 INVOICE_GATEWAY=fake
+
+# Enables simulated confirmation and demo reset routes. Keep false outside demos.
+SETTLEMENT_DEMO_MODE=false
 
 # Circle / Arc Testnet Settings
 CIRCLE_API_KEY=

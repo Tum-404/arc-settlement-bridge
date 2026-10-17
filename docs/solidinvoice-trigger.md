@@ -64,9 +64,10 @@ Callbacks older than five minutes are rejected by default. Set
 `SOLIDINVOICE_WEBHOOK_MAX_AGE_SECONDS` only when a longer outbox delay is
 intentional.
 
-## SolidInvoice subscriber behavior
+## Legacy subscriber behavior
 
-Install a small SolidInvoice/Symfony event subscriber that observes the
+Only existing deployments that already use the legacy webhook compatibility
+endpoint should install a small SolidInvoice/Symfony event subscriber that observes the
 invoice workflow transition to `pending`. It should write an outbox record in
 the same database transaction, then a worker should deliver the signed request
 above. Do not make the HTTP request within the invoice status transaction.

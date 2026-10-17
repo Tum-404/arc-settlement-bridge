@@ -23,6 +23,18 @@ final class CircleClient
         return $this->blockchain;
     }
 
+    public function assertCredentialsConfigured(): void
+    {
+        if (trim($this->apiKey) === '') {
+            throw new RuntimeException('CIRCLE_API_KEY must be configured before submitting an Arc transfer.');
+        }
+
+        $secretBinary = @hex2bin(trim((string) $this->entitySecret));
+        if ($secretBinary === false || strlen($secretBinary) !== 32) {
+            throw new RuntimeException('CIRCLE_ENTITY_SECRET must be a 32-byte hexadecimal string (64 characters).');
+        }
+    }
+
     /**
      * Retrieve Circle Developer Public Key for entity secret encryption.
      */
@@ -46,16 +58,10 @@ final class CircleClient
     /**
      * Generate single-use entitySecretCiphertext using RSA-OAEP SHA-256.
      */
-    public function generateEntitySecretCiphertext(): ?string
+    public function generateEntitySecretCiphertext(): string
     {
-        if (empty($this->entitySecret)) {
-            return null;
-        }
-
-        $secretBinary = @hex2bin(trim($this->entitySecret));
-        if ($secretBinary === false || strlen($secretBinary) !== 32) {
-            throw new RuntimeException('CIRCLE_ENTITY_SECRET must be a 32-byte hexadecimal string (64 characters).');
-        }
+        $this->assertCredentialsConfigured();
+        $secretBinary = hex2bin(trim((string) $this->entitySecret));
 
         $publicKey = $this->getPublicKey();
 
@@ -134,10 +140,7 @@ final class CircleClient
             }
         }
 
-        $ciphertext = $this->generateEntitySecretCiphertext();
-        if ($ciphertext !== null) {
-            $payload['entitySecretCiphertext'] = $ciphertext;
-        }
+        $payload['entitySecretCiphertext'] = $this->generateEntitySecretCiphertext();
 
         $response = $this->client()->post('/v1/w3s/developer/transactions/transfer', $payload);
 
