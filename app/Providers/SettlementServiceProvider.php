@@ -31,7 +31,9 @@ final class SettlementServiceProvider extends ServiceProvider
 
         $this->app->singleton(CircleWebhookVerifier::class, function (): CircleWebhookVerifier {
             return new CircleWebhookVerifier(
-                (string) config('settlement.arc.webhook_secret', '')
+                webhookSecret: (string) config('settlement.arc.webhook_secret', ''),
+                apiKey: (string) config('settlement.arc.circle_api_key', ''),
+                baseUrl: (string) config('settlement.arc.base_url', 'https://api.circle.com'),
             );
         });
 
