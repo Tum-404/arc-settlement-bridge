@@ -28,6 +28,7 @@ The deterministic settlement core is implemented and functionally verified local
 
 - [x] Run the PostgreSQL-only duplicate-pressure check (AC4.2): passed on 2026-10-15 with one settlement created from five identical submissions.
 - [x] Add and run a true multi-process PostgreSQL concurrency test: AC4.2 passed on 2026-10-16 with 10 workers released through a shared barrier, one settlement, and one payment-submitted event.
+- [x] Verify `/demo/reset` against PostgreSQL: settlement events, webhook events, and settlements were cleared without a foreign-key error.
 
 ## Remaining before Arc testnet demo
 - [ ] Provision a Circle developer-controlled wallet and set `CIRCLE_API_KEY`, `ARC_WALLET_ID`, token address, and `ARC_WEBHOOK_SECRET`.

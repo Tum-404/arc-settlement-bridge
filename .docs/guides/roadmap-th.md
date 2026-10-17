@@ -24,9 +24,9 @@ Settlement core พร้อมสำหรับ local demo แล้ว: `php 
 3. ตั้งค่า SolidInvoice token, สร้าง client และ invoice `pending` ที่มี `crypto_address`, แล้ว activate recipient ผ่าน dashboard/API ก่อนให้ poller ทำงาน.
 4. รัน PostgreSQL-only duplicate-pressure test (AC4.2) สำเร็จแล้วเมื่อ 15 ตุลาคม 2026: 5 submissions เดียวกันสร้าง settlement เดียว. ห้ามถือว่า SQLite in-memory แทนการทดสอบ lock และ unique-constraint race ของ production database ได้.
 5. เพิ่มและรัน true concurrency test ที่ใช้ 10 PHP worker processes พร้อมกันผ่าน shared barrier สำเร็จแล้วเมื่อ 16 ตุลาคม 2026. AC4.2 ยืนยันว่าได้ settlement เดียวและ `PAYMENT_SUBMITTED` event เดียว.
-6. ทดสอบ `/demo/reset` บน PostgreSQL เพื่อยืนยันการลบ settlement events, webhook events และ settlements ตามลำดับที่ไม่ชน foreign key.
+6. ทดสอบ `/demo/reset` บน PostgreSQL สำเร็จแล้ว: ลบ settlement events, webhook events และ settlements ตามลำดับโดยไม่ชน foreign key.
 
-เงื่อนไขผ่านบางส่วน: AC4.2 ผ่านบน PostgreSQL และ true concurrency test ผ่านแล้ว. ยังต้องยืนยัน reset demo บน PostgreSQL และยืนยันว่า poller ไม่สร้าง payment ซ้ำสำหรับ invoice เดิม.
+เงื่อนไขผ่านบางส่วน: AC4.2, true concurrency test และ demo reset ผ่านบน PostgreSQL แล้ว. Poller regression test ยืนยัน locally ว่า invoice ที่ `CONFIRMED` ไม่เพิ่ม duplicate audit event; ยังต้องยืนยันกับ SolidInvoice จริง.
 
 ## ระยะ 3: เตรียม Arc testnet
 
