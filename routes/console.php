@@ -5,6 +5,7 @@ use App\Application\Settlement\Commands\RecoverUnknownSettlements;
 use App\Infrastructure\Arc\CircleClient;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -40,7 +41,7 @@ Artisan::command('settlements:circle-check', function (CircleClient $circle): in
     $blockchain = (string) config('settlement.arc.blockchain');
 
     $this->line("Blockchain: <info>{$blockchain}</info>");
-    $this->line('API Key: '.(empty($apiKey) ? '<fg=red>Not set</>' : '<info>Configured</info> ('.substr($apiKey, 0, 15).'...)'));
+    $this->line('API Key: '.(empty($apiKey) ? '<fg=red>Not set</>' : '<info>Configured</info>'));
     $this->line('Entity Secret: '.(empty($entitySecret) ? '<fg=red>Not set</>' : '<info>Configured</info> ('.strlen($entitySecret).' chars)'));
     $this->line('Wallet ID: '.(empty($walletId) ? '<fg=yellow>Not set</>' : "<info>{$walletId}</info>"));
 
@@ -86,3 +87,7 @@ Artisan::command('settlements:circle-check', function (CircleClient $circle): in
 
     return 0;
 })->purpose('Verify Circle Developer API key, entity secret encryption, and Arc wallet connectivity');
+
+Schedule::command('settlements:recover-unknown')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
