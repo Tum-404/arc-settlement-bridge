@@ -181,7 +181,8 @@ final class SolidInvoiceGateway implements InvoiceGateway
             ]);
 
         if (! $response->successful()) {
-            if (strtolower($this->get($invoiceId)->status) === 'paid') {
+            if (str_contains(strtolower($response->body()), 'status "paid"')
+                || strtolower($this->get($invoiceId)->status) === 'paid') {
                 return;
             }
 
