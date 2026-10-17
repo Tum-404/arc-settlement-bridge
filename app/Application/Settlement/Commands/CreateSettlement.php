@@ -119,14 +119,8 @@ final class CreateSettlement
         $settlement = null;
         $isDuplicate = false;
 
-        DB::transaction(function () use (
-            $command,
-            $idempotencyKey,
-            $normalizedAmount,
-            &$settlement,
-            &$isDuplicate
-        ): void {
-            try {
+        try {
+            DB::transaction(function () use ($command, $idempotencyKey, $normalizedAmount, &$settlement): void {
                 $settlement = Settlement::create([
                     'source' => strtolower(trim($command->source)),
                     'source_invoice_id' => trim($command->invoiceId),
@@ -155,21 +149,22 @@ final class CreateSettlement
                     'invoice_id' => $settlement->source_invoice_id,
                     'status' => $settlement->status->value,
                 ]);
-            } catch (UniqueConstraintViolationException) {
-                // Concurrent race condition caught by database unique constraint
-                $settlement = Settlement::where('idempotency_key', $idempotencyKey)->first();
-                if ($settlement === null) {
-                    $invoiceSettlement = Settlement::where('source', strtolower(trim($command->source)))
-                        ->where('source_invoice_id', trim($command->invoiceId))
-                        ->firstOrFail();
-                    $this->recordRejectedAttempt($invoiceSettlement, $command);
-                    throw SettlementRequestConflictException::forInvoice($command->source, $command->invoiceId);
-                }
-                $isDuplicate = true;
+            });
+        } catch (UniqueConstraintViolationException) {
+            // PostgreSQL aborts the transaction after a uniqueness error. Query
+            // for the winner only after DB::transaction has rolled it back.
+            $settlement = Settlement::where('idempotency_key', $idempotencyKey)->first();
+            if ($settlement === null) {
+                $invoiceSettlement = Settlement::where('source', strtolower(trim($command->source)))
+                    ->where('source_invoice_id', trim($command->invoiceId))
+                    ->firstOrFail();
+                $this->recordRejectedAttempt($invoiceSettlement, $command);
+                throw SettlementRequestConflictException::forInvoice($command->source, $command->invoiceId);
             }
-        });
+            $isDuplicate = true;
+        }
 
-        if ($isDuplicate && $settlement !== null) {
+        if ($isDuplicate) {
             $this->recordDuplicateAttempt($settlement);
 
             return ['settlement' => $settlement, 'is_duplicate' => true];

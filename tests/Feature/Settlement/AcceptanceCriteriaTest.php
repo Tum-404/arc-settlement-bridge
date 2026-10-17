@@ -470,26 +470,114 @@ test('AC4.2: Concurrent duplicate pressure test under PostgreSQL', function (): 
         $this->markTestSkipped('Skipped when running against in-memory SQLite. Run with DB_CONNECTION=pgsql to verify PostgreSQL row locking.');
     }
 
-    $creator = app(CreateSettlement::class);
-    $command = new CreateSettlementCommand(
-        source: 'solidinvoice',
-        invoiceId: 'INV-001',
-        recipient: '0x71C836643F37D110e49952042125585097486eF8',
-        amount: '100.000000',
-        currency: 'USDC',
-    );
+    $invoiceId = 'PG-CONCURRENT-'.bin2hex(random_bytes(8));
+    $barrier = storage_path('framework/testing/settlement-concurrency-'.bin2hex(random_bytes(8)).'.ready');
 
-    $results = [];
-    for ($i = 0; $i < 5; $i++) {
-        $results[] = $creator->execute($command);
+    $runWorker = static function (string $mode, string $invoiceId, ?string $barrier = null): array {
+        $arguments = [PHP_BINARY, base_path('tests/Support/ConcurrentSettlementWorker.php'), "--mode={$mode}", "--invoice={$invoiceId}"];
+        if ($barrier !== null) {
+            $arguments[] = "--barrier={$barrier}";
+        }
+
+        $command = implode(' ', array_map('escapeshellarg', $arguments));
+        $environment = array_merge(is_array(getenv()) ? getenv() : [], [
+            'APP_ENV' => 'testing',
+            'DB_CONNECTION' => 'pgsql',
+            'DB_HOST' => (string) config('database.connections.pgsql.host'),
+            'DB_PORT' => (string) config('database.connections.pgsql.port'),
+            'DB_DATABASE' => (string) config('database.connections.pgsql.database'),
+            'DB_USERNAME' => (string) config('database.connections.pgsql.username'),
+            'DB_PASSWORD' => (string) config('database.connections.pgsql.password'),
+            'SETTLEMENT_PROVIDER' => 'fake',
+            'INVOICE_GATEWAY' => 'fake',
+        ]);
+
+        $process = proc_open($command, [
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ], $pipes, base_path(), $environment);
+
+        if (! is_resource($process)) {
+            throw new RuntimeException('Could not start the settlement concurrency worker.');
+        }
+
+        return [$process, $pipes];
+    };
+
+    // RefreshDatabase uses a transaction, which external PHP workers cannot
+    // see. Commit the test fixture before the barrier and restore a transaction
+    // in finally so Laravel can clean up normally.
+    $connection = DB::connection();
+    $connection->commit();
+    $workers = [];
+
+    try {
+        [$setupProcess, $setupPipes] = $runWorker('seed', $invoiceId);
+        $setupOutput = stream_get_contents($setupPipes[1]);
+        $setupError = stream_get_contents($setupPipes[2]);
+        fclose($setupPipes[1]);
+        fclose($setupPipes[2]);
+        expect(proc_close($setupProcess))->toBe(0, $setupError ?: $setupOutput);
+
+        for ($i = 0; $i < 10; $i++) {
+            $workers[] = $runWorker('settle', $invoiceId, $barrier);
+        }
+
+        $deadline = microtime(true) + 10;
+        while (count(glob($barrier.'.*.waiting') ?: []) < 10 && microtime(true) < $deadline) {
+            usleep(10_000);
+        }
+        if (count(glob($barrier.'.*.waiting') ?: []) !== 10) {
+            throw new RuntimeException('Not every settlement worker reached the concurrency barrier.');
+        }
+
+        File::put($barrier, 'go');
+
+        while ($workers !== []) {
+            [$process, $pipes] = array_shift($workers);
+            $output = stream_get_contents($pipes[1]);
+            $error = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            expect(proc_close($process))->toBe(0, $error ?: $output);
+        }
+
+        $settlements = Settlement::query()
+            ->where('source', 'solidinvoice')
+            ->where('source_invoice_id', $invoiceId)
+            ->get();
+
+        expect($settlements)->toHaveCount(1)
+            ->and(SettlementEvent::query()
+                ->where('settlement_id', $settlements->sole()->id)
+                ->where('type', SettlementEventType::PAYMENT_SUBMITTED)
+                ->count())->toBe(1);
+    } finally {
+        try {
+            if ($workers !== []) {
+                File::put($barrier, 'release');
+                foreach ($workers as [$process, $pipes]) {
+                    stream_get_contents($pipes[1]);
+                    stream_get_contents($pipes[2]);
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    proc_close($process);
+                }
+            }
+
+            File::delete($barrier);
+            File::delete(glob($barrier.'.*.waiting') ?: []);
+
+            [$cleanupProcess, $cleanupPipes] = $runWorker('cleanup', $invoiceId);
+            stream_get_contents($cleanupPipes[1]);
+            stream_get_contents($cleanupPipes[2]);
+            fclose($cleanupPipes[1]);
+            fclose($cleanupPipes[2]);
+            proc_close($cleanupProcess);
+        } finally {
+            $connection->beginTransaction();
+        }
     }
-
-    $created = count(array_filter($results, fn ($r) => ! $r['is_duplicate']));
-    $duplicates = count(array_filter($results, fn ($r) => $r['is_duplicate']));
-
-    expect($created)->toBe(1)
-        ->and($duplicates)->toBe(4)
-        ->and(Settlement::count())->toBe(1);
 })->group('postgres');
 
 test('AC4.3: No sequence of events reaches PAID without passing through CONFIRMED', function (): void {
