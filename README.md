@@ -137,6 +137,9 @@ php artisan key:generate
 # Run migrations
 php artisan migrate
 
+# Create the first dashboard operator. The command prompts for the password.
+php artisan users:create-admin operator@example.com --name="Settlement Operator"
+
 # Build frontend assets
 npm run build
 ```
@@ -148,6 +151,26 @@ php artisan serve
 ```
 
 Open [http://localhost:8000](http://localhost:8000) to access the interactive dashboard!
+
+### Operator access
+
+The dashboard, recipient/settlement API, demo controls, and
+[Log Viewer](http://localhost:8000/log-viewer) require an authenticated local
+operator session. Provision an operator after every fresh environment setup:
+
+```bash
+php artisan users:create-admin operator@example.com --name="Settlement Operator"
+```
+
+The command requests a password interactively and rejects passwords shorter
+than 12 characters. It does not seed a shared default account. To deliberately
+reset an existing operator account, pass `--force`. Avoid `--password` in a
+shared shell or CI log because command-line arguments can be retained in shell
+history.
+
+Circle and SolidInvoice webhook endpoints remain unauthenticated by session:
+they are external machine-to-machine endpoints and enforce their configured
+signature checks instead.
 
 ### 3. Production Docker Compose
 
@@ -161,7 +184,7 @@ docker compose up -d
 
 ## Running the Automated Test Suite
 
-The test suite currently has 50 passing tests (271 assertions) with one PostgreSQL-only test skipped under the default SQLite configuration. It covers concurrency races, idempotency spam, state transitions, webhook verification, safety hardening, recipient controls, and full end-to-end reconciliation:
+The test suite currently has 63 passing tests with one PostgreSQL-only test skipped under the default SQLite configuration. It covers concurrency races, idempotency spam, state transitions, webhook verification, safety hardening, recipient controls, authentication, and full end-to-end reconciliation:
 
 ```bash
 # Run the Pest test suite
@@ -237,6 +260,7 @@ Symfony subscriber, plugin, or database access in SolidInvoice.
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `php artisan settlements:recover-unknown`   | Safely checks and retries settlements in ambiguous submission states (`SUBMISSION_UNKNOWN`) without risking duplicate money movement. |
 | `php artisan settlements:poll-solidinvoice` | Out-of-process poller for payable SolidInvoice invoices; no SolidInvoice source modification required.                                |
+| `php artisan users:create-admin email`      | Interactively provisions an operator for the dashboard and Log Viewer.                                                                    |
 | `php artisan test`                          | Runs the full Pest test suite verifying all invariants.                                                                               |
 | `php artisan migrate`                       | Executes database migrations including unique constraints and audit tables.                                                           |
 
@@ -252,6 +276,11 @@ Symfony subscriber, plugin, or database access in SolidInvoice.
 | `POST` | `/api/settlements/{id}/simulate-confirm` | Simulate external confirmation and trigger invoice reconciliation                                |
 | `POST` | `/api/webhooks/arc`                      | Webhook endpoint for Circle / Arc Testnet notifications                                          |
 | `POST` | `/demo/reset`                            | Reset demo state for interactive presentations                                                   |
+
+All dashboard-facing endpoints above require an authenticated operator session.
+Browser requests to protected mutating endpoints also require a CSRF token.
+`/api/webhooks/arc` and `/api/webhooks/solidinvoice` remain session-free so
+Circle and SolidInvoice can deliver signed callbacks.
 
 `simulate-confirm` and `demo/reset` are demo-only endpoints. They return `404`
 unless `SETTLEMENT_DEMO_MODE=true` is explicitly configured; keep that value
@@ -283,6 +312,7 @@ CIRCLE_BLOCKCHAIN=ARC-TESTNET
 ARC_WALLET_ID=
 ARC_WALLET_ADDRESS=
 ARC_USDC_CONTRACT_ADDRESS=
+ARC_TOKEN_ID=
 ARC_WEBHOOK_SECRET=
 
 # SolidInvoice API Settings

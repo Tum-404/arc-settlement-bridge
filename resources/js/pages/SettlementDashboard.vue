@@ -94,6 +94,18 @@ const props = withDefaults(
 
 const activeTab = ref<'gateway' | 'recipients' | 'webhooks'>('gateway');
 
+function csrfHeaders(): Record<string, string> {
+    const token = document
+        .querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
+        ?.content;
+
+    return token ? { 'X-CSRF-TOKEN': token } : {};
+}
+
+function signOut() {
+    router.post('/logout', {}, { headers: csrfHeaders() });
+}
+
 const showRegisterModal = ref(false);
 const isSubmittingRecipient = ref(false);
 const recipientActionError = ref<string | null>(null);
@@ -141,6 +153,7 @@ async function submitRegisterRecipient() {
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
+                ...csrfHeaders(),
             },
             body: JSON.stringify(registerForm.value),
         });
@@ -165,7 +178,7 @@ async function toggleRecipient(recipient: Recipient) {
     try {
         const res = await fetch(`/api/recipients/${recipient.id}/toggle`, {
             method: 'PATCH',
-            headers: { Accept: 'application/json' },
+            headers: { Accept: 'application/json', ...csrfHeaders() },
         });
         if (!res.ok) throw new Error('Failed to toggle status');
         addLog(`Payee [${recipient.client_id}] status toggled.`, 'info');
@@ -180,7 +193,7 @@ async function deleteRecipient(recipient: Recipient) {
     try {
         const res = await fetch(`/api/recipients/${recipient.id}`, {
             method: 'DELETE',
-            headers: { Accept: 'application/json' },
+            headers: { Accept: 'application/json', ...csrfHeaders() },
         });
         if (!res.ok) throw new Error('Failed to delete recipient');
         addLog(`Payee [${recipient.client_id}] removed from whitelist.`, 'warn');
@@ -260,6 +273,7 @@ async function settleSingle() {
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
+                ...csrfHeaders(),
             },
             body: JSON.stringify({
                 source: 'solidinvoice',
@@ -321,6 +335,7 @@ async function spamTenRequests() {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json',
+                    ...csrfHeaders(),
                 },
                 body: JSON.stringify(payload),
             }).then(async (res) => {
@@ -378,6 +393,7 @@ async function simulateConfirmation() {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json',
+                    ...csrfHeaders(),
                 },
                 body: JSON.stringify({}),
             },
@@ -405,7 +421,7 @@ async function resetDemoData() {
     try {
         await fetch('/demo/reset', {
             method: 'POST',
-            headers: { Accept: 'application/json' },
+            headers: { Accept: 'application/json', ...csrfHeaders() },
         });
         addLog('Demo state reset to clean initial conditions.', 'info');
         lastSpamStats.value = null;
@@ -490,6 +506,12 @@ async function resetDemoData() {
                         class="rounded-lg border border-slate-700/60 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
                     >
                         Reset Demo
+                    </button>
+                    <button
+                        @click="signOut"
+                        class="border border-slate-700/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-white"
+                    >
+                        Sign out
                     </button>
                 </div>
             </div>

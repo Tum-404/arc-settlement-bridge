@@ -7,6 +7,7 @@ use App\Domain\Settlement\Contracts\SettlementProvider;
 use App\Domain\Settlement\Models\Recipient;
 use App\Infrastructure\Providers\FakeSettlementProvider;
 use App\Infrastructure\SolidInvoice\FakeInvoiceGateway;
+use App\Models\User;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Schema;
 
@@ -23,6 +24,10 @@ abstract class TestCase extends BaseTestCase
         $this->app->forgetInstance(InvoiceGateway::class);
         FakeSettlementProvider::reset();
         FakeInvoiceGateway::reset();
+
+        if (Schema::hasTable('users')) {
+            $this->actingAs(User::factory()->create());
+        }
 
         if (Schema::hasTable('recipients')) {
             Recipient::updateOrCreate(
