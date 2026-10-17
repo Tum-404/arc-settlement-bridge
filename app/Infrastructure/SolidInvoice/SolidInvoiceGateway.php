@@ -109,21 +109,25 @@ final class SolidInvoiceGateway implements InvoiceGateway
             : [];
 
         $recipient = (string) ($customFields['crypto_address'] ?? $clientCustomFields['crypto_address'] ?? '');
+        $client = is_array($data['client'] ?? null) ? $this->clientIdentifier($data['client']) : null;
 
-        if ($recipient === '' && is_string($data['client'] ?? null) && str_starts_with((string) $data['client'], '/api/clients/')) {
+        if (is_string($data['client'] ?? null) && str_starts_with((string) $data['client'], '/api/clients/')) {
+            $client ??= trim((string) $data['client']);
+
             try {
                 $clientRes = $this->request()->get((string) $data['client']);
                 if ($clientRes->successful()) {
                     $clientData = $clientRes->json();
                     if (is_array($clientData)) {
+                        $client = $this->clientIdentifier($clientData) ?? $client;
                         $clientFields = is_array($clientData['customFields'] ?? null)
                             ? $clientData['customFields']
                             : (is_array($clientData['custom_fields'] ?? null) ? $clientData['custom_fields'] : []);
-                        $recipient = (string) ($clientFields['crypto_address'] ?? '');
+                        $recipient = $recipient !== '' ? $recipient : (string) ($clientFields['crypto_address'] ?? '');
                     }
                 }
             } catch (\Throwable) {
-                // Ignore error and retain recipient string
+                // Retain the IRI as the client reference if the expansion fails.
             }
         }
 
@@ -134,8 +138,21 @@ final class SolidInvoiceGateway implements InvoiceGateway
             amount: (string) ($data['total'] ?? $data['payableAmount'] ?? '0.000000'),
             currency: (string) ($data['currency'] ?? 'USDC'),
             status: (string) ($data['status'] ?? 'unknown'),
-            client: (isset($data['client']) && is_array($data['client'])) ? (string) ($data['client']['name'] ?? null) : null,
+            client: $client,
         );
+    }
+
+    /** @param array<string, mixed> $client */
+    private function clientIdentifier(array $client): ?string
+    {
+        foreach (['name', 'id', '@id'] as $field) {
+            $value = trim((string) ($client[$field] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     public function markPaid(string $invoiceId, SettlementReceipt $receipt, string $idempotencyKey): void

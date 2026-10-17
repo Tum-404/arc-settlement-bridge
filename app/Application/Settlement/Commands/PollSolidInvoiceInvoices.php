@@ -55,6 +55,7 @@ final class PollSolidInvoiceInvoices
                 $created = $this->createSettlement->execute(new CreateSettlementCommand(
                     source: 'solidinvoice', invoiceId: $invoice->id, recipient: $invoice->recipient,
                     amount: $invoice->amount, currency: $invoice->currency,
+                    clientId: $invoice->client,
                 ));
 
                 $created['is_duplicate'] ? $result['skipped']++ : $result['submitted']++;
