@@ -45,6 +45,13 @@ test('unsigned webhook callbacks are rejected when local unsigned mode is disabl
     $this->postJson('/api/webhooks/arc', ['eventId' => 'unsigned'])->assertUnauthorized();
 });
 
+test('arc provider rejects unsigned webhooks even when local unsigned mode is enabled', function (): void {
+    config()->set('settlement.provider', 'arc');
+    config()->set('settlement.arc.allow_unsigned_webhooks', true);
+
+    $this->postJson('/api/webhooks/arc', ['eventId' => 'unsigned-arc'])->assertUnauthorized();
+});
+
 test('a provider connection failure remains recoverable instead of being marked failed', function (): void {
     $this->mock(SettlementProvider::class, function ($mock): void {
         $mock->shouldReceive('submit')->once()->andThrow(new ConnectionException('timeout'));

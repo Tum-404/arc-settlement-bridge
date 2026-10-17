@@ -2,7 +2,7 @@
 
 ## MVP status
 
-The deterministic settlement core is implemented and functionally verified locally. As of 2026-10-14, `php artisan test` passes with 50 passing tests / 271 assertions (one PostgreSQL-only test is skipped), `vendor/bin/phpstan analyse --memory-limit=1G`, `vendor/bin/pint --test`, and `npm run types:check` all pass.
+The deterministic settlement core is implemented and functionally verified locally. As of 2026-10-17, `php artisan test` passes with 52 passing tests / 278 assertions (one PostgreSQL-only test is skipped), `vendor/bin/phpstan analyse --memory-limit=1G`, `vendor/bin/pint --test`, and `npm run types:check` all pass.
 
 ### Completed
 
@@ -19,16 +19,19 @@ The deterministic settlement core is implemented and functionally verified local
 - [x] Row-locked confirmation, append-only audit events, webhook replay protection, and durable reconciliation state
 - [x] Fail-closed Arc webhook signature verification outside explicit local/testing configuration
 - [x] Recovery command: `php artisan settlements:recover-unknown`
+- [x] Recovery schedule registered every five minutes with overlap protection; deployment still needs a Laravel scheduler runner
+- [x] Regression tests for demo reset child-record cleanup and confirmed-invoice poller skipping
 - [x] Tests for duplicates, invoice-coordinate conflicts, timeout handling, failures, incomplete evidence, webhook replay, and invalid transitions
 - [x] Approved-recipient enforcement: source invoice client is authoritative; optional API `client_id` is validated as a matching fallback only when needed
 
 ## Current work in progress
 
-- [ ] Add a real PostgreSQL concurrency run. The test suite contains a PostgreSQL-only duplicate-pressure test but skips it under the default in-memory SQLite configuration.
+- [x] Run the PostgreSQL-only duplicate-pressure check (AC4.2): passed on 2026-10-15 with one settlement created from five identical submissions.
+- [x] Add and run a true multi-process PostgreSQL concurrency test: AC4.2 passed on 2026-10-16 with 10 workers released through a shared barrier, one settlement, and one payment-submitted event.
 
 ## Remaining before Arc testnet demo
 - [ ] Provision a Circle developer-controlled wallet and set `CIRCLE_API_KEY`, `ARC_WALLET_ID`, token address, and `ARC_WEBHOOK_SECRET`.
-- [ ] Keep `SETTLEMENT_ALLOW_UNSIGNED_WEBHOOKS=false` when `SETTLEMENT_PROVIDER=arc`.
+- [x] Enforce signed webhooks for the Arc provider, including local environments; `SETTLEMENT_ALLOW_UNSIGNED_WEBHOOKS=false` is set for the local Arc configuration.
 - [ ] Submit and reconcile one real Arc testnet USDC transaction; retain its provider ID and transaction hash as demo evidence.
 - [ ] Run SolidInvoice locally, configure `INVOICE_GATEWAY=solidinvoice`, and confirm its payment endpoint accepts/retrieves the Bridge idempotency reference.
 - [ ] Schedule `php artisan settlements:recover-unknown` in the deployment environment.

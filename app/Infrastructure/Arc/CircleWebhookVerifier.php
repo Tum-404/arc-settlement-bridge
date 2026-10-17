@@ -19,6 +19,10 @@ final class CircleWebhookVerifier
     {
         // Unsigned callbacks are permitted only for explicitly local/test operation.
         if (empty($this->webhookSecret)) {
+            if (config('settlement.provider') === 'arc') {
+                return false;
+            }
+
             return (bool) config('settlement.arc.allow_unsigned_webhooks', false)
                 && in_array(config('app.env'), ['local', 'testing'], true);
         }
